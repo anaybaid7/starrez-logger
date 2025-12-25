@@ -164,6 +164,18 @@ function createStyledButton(text, gradient = 'linear-gradient(135deg, #667eea 0%
     return button;
 }
 
+// Find the "X Parcels" span element
+function findParcelCountElement() {
+    const spans = Array.from(document.querySelectorAll('span'));
+    for (let span of spans) {
+        const text = span.textContent.trim();
+        if (/^\d+\s+Parcel[s]?$/i.test(text) && span.children.length === 0) {
+            return span;
+        }
+    }
+    return null;
+}
+
 // FIXED: Create buttons for multiple packages
 function createLogButtons() {
     // Find all Issue buttons
@@ -179,17 +191,18 @@ function createLogButtons() {
     
     const packageCount = issueButtons.length;
     
-    // EDGE CASE 2: If 2+ Issue buttons, add a master button for all packages
+    // EDGE CASE 2: If 2+ Issue buttons, add a master button next to "X Parcels" text
     if (packageCount >= 2) {
-        const firstIssueButton = issueButtons[0];
+        const parcelCountElement = findParcelCountElement();
         
-        // Check if master button already exists
-        if (!document.getElementById('package-log-master-btn')) {
+        if (parcelCountElement && !document.getElementById('package-log-master-btn')) {
             const masterButton = createStyledButton(
                 `Copy ${packageCount} pkgs`,
                 'linear-gradient(135deg, #f093fb 0%, #f5576c 100%)'
             );
             masterButton.id = 'package-log-master-btn';
+            masterButton.style.marginLeft = '15px';
+            masterButton.style.verticalAlign = 'middle';
             
             masterButton.addEventListener('click', async (e) => {
                 e.preventDefault();
@@ -217,7 +230,8 @@ function createLogButtons() {
                 }
             });
             
-            firstIssueButton.parentNode.insertBefore(masterButton, firstIssueButton);
+            // Insert button right after the "X Parcels" span
+            parcelCountElement.parentNode.insertBefore(masterButton, parcelCountElement.nextSibling);
         }
     }
     
