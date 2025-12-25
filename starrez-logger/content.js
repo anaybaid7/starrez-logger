@@ -1,7 +1,6 @@
 // StarRez Package Logger - Content Script
-// Pierces Shadow DOM and automates package log formatting
 
-// Extract staff member's name from Pendo initialization script
+// Extract staff name from Pendo script
 function getStaffName() {
     const scripts = document.querySelectorAll('script');
     for (let script of scripts) {
@@ -13,7 +12,6 @@ function getStaffName() {
             }
         }
     }
-    console.warn('Could not find staff name in Pendo script');
     return null;
 }
 
@@ -21,87 +19,35 @@ function getStaffName() {
 function getStudentDataFromRez360() {
     const data = {};
     
-    // Get student name from page title or header
-    const titleElement = document.querySelector('h1, [class*="title"], [class*="header"]');
-    if (titleElement) {
-        const titleText = titleElement.textContent.trim();
-        // Match "Scott, Weldon - [Reserved]" format
-        const nameMatch = titleText.match(/^([^-]+)/);
-        if (nameMatch) {
-            data.fullName = nameMatch[1].trim().replace(/\s*-\s*\[.*\]/, '');
+    // Get student name from breadcrumb (most reliable)
+    const breadcrumbs = document.querySelectorAll('habitat-header-breadcrumb-item');
+    for (let crumb of breadcrumbs) {
+        const text = crumb.textContent.trim();
+        // Must have comma, not be a navigation item
+        if (text.includes(',') && !text.includes('Dashboard') && !text.includes('Desk') && !text.includes('Front')) {
+            data.fullName = text;
+            break;
         }
     }
     
-    // Try breadcrumb as backup
-    if (!data.fullName) {
-        const breadcrumbs = document.querySelectorAll('habitat-header-breadcrumb-item');
-        for (let crumb of breadcrumbs) {
-            const text = crumb.textContent.trim();
-            // Look for "Last, First" format
-            if (text.includes(',') && !text.includes('Dashboard') && !text.includes('Desk')) {
-                data.fullName = text;
-                break;
-            }
-        }
-    }
-    
-    // Get student number - look for field with label "Student Number"
+    // Get student number
     const allText = document.body.innerText;
     const studentNumMatch = allText.match(/Student Number\s+(\d{8})/);
     if (studentNumMatch) {
         data.studentNumber = studentNumMatch[1];
     }
     
-    // Get room/bed space - look for "Room" field in the booking section
-    // Format: "MHR-116/MHR-116a" - we want the second part (MHR-116a)
+    // Get room/bed space
     const roomMatch = allText.match(/Room\s+([A-Z]{2,4}-\d{3}[a-z]?)(?:\/([A-Z]{2,4}-\d{3}[a-z]?))?/);
     if (roomMatch) {
-        // Use the specific bed space if available (second group), otherwise use the room
         data.roomSpace = roomMatch[2] || roomMatch[1];
     }
     
     return Object.keys(data).length > 0 ? data : null;
 }
 
-// Extract student data from breadcrumb (for old dashboard view)
-function getStudentDataFromBreadcrumb() {
-    const breadcrumbs = document.querySelectorAll('habitat-header-breadcrumb-item');
-    for (let crumb of breadcrumbs) {
-        const moduleAttr = crumb.getAttribute('module');
-        if (moduleAttr) {
-            try {
-                const moduleData = JSON.parse(moduleAttr);
-                if (moduleData.dbObjectName === 'Entry' && moduleData.recordId) {
-                    const nameText = crumb.textContent.trim();
-                    return {
-                        fullName: nameText,
-                        recordId: moduleData.recordId,
-                        caption: moduleData.caption
-                    };
-                }
-            } catch (e) {
-                console.log('Could not parse module data:', e);
-            }
-        }
-    }
-    return null;
-}
-
-// Extract data from table cells with data-label (for dashboard table view)
-function getTableData(dataLabel) {
-    const cells = document.querySelectorAll(`td[data-label="${dataLabel}"]`);
-    for (let cell of cells) {
-        const span = cell.querySelector('span.field');
-        if (span && span.textContent.trim()) {
-            return span.textContent.trim();
-        }
-    }
-    return null;
-}
-
 // Get initials from full name
 function getInitials(fullName) {
-    // Handle "Last, First" format (for students like "Scott, Weldon")
     if (fullName.includes(',')) {
         const parts = fullName.split(',').map(p => p.trim());
         const lastName = parts[0];
@@ -110,13 +56,11 @@ function getInitials(fullName) {
         const lastInitial = lastName[0];
         return (firstInitials + lastInitial).toUpperCase();
     }
-    
-    // Handle "First Last" format (for staff like "Anay Baid")
     const nameParts = fullName.split(' ').filter(p => p.length > 0);
     return nameParts.map(part => part[0]).join('').toUpperCase();
 }
 
-// Format current time as HH:MM am/pm
+// Format current time
 function getCurrentTime() {
     const now = new Date();
     let hours = now.getHours();
@@ -128,59 +72,30 @@ function getCurrentTime() {
     return `${hours}:${minutesStr} ${ampm}`;
 }
 
-// Generate the log entry
+// Generate log entry
 function generateLogEntry() {
     try {
-        // Get staff name and initials
         const staffName = getStaffName();
         const staffInitials = staffName ? getInitials(staffName) : 'XX';
         
-        // Try Rez 360 format first (detail view)
-        let studentData = getStudentDataFromRez360();
-        
-        // Fallback to breadcrumb format (old view)
-        if (!studentData || !studentData.fullName) {
-            const breadcrumbData = getStudentDataFromBreadcrumb();
-            if (breadcrumbData) {
-                studentData = {
-                    fullName: breadcrumbData.fullName,
-                    studentNumber: getTableData('Student Number') || breadcrumbData.recordId,
-                    roomSpace: getTableData('Room Space Description') || getTableData('Bed Space')
-                };
-            }
-        }
+        const studentData = getStudentDataFromRez360();
         
         if (!studentData || !studentData.fullName) {
-            return {
-                success: false,
-                error: 'Could not find student name on this page'
-            };
+            return { success: false, error: 'Could not find student name' };
         }
         
         if (!studentData.studentNumber) {
-            return {
-                success: false,
-                error: 'Could not find student number'
-            };
+            return { success: false, error: 'Could not find student number' };
         }
         
         if (!studentData.roomSpace) {
-            return {
-                success: false,
-                error: 'Could not find room/bed space'
-            };
+            return { success: false, error: 'Could not find room/bed space' };
         }
         
-        // Get initials from student name
         const initials = getInitials(studentData.fullName);
-        
-        // Get current time
         const time = getCurrentTime();
-        
-        // Default to 1 package
         const packageCount = 1;
         
-        // Format: WS (21035314) MHR-116a 1 pkg @ 4:37 pm - AB
         const logEntry = `${initials} (${studentData.studentNumber}) ${studentData.roomSpace} ${packageCount} pkg${packageCount > 1 ? 's' : ''} @ ${time} - ${staffInitials}`;
         
         return {
@@ -198,10 +113,7 @@ function generateLogEntry() {
             }
         };
     } catch (error) {
-        return {
-            success: false,
-            error: error.message
-        };
+        return { success: false, error: error.message };
     }
 }
 
@@ -211,14 +123,12 @@ async function copyToClipboard(text) {
         await navigator.clipboard.writeText(text);
         return true;
     } catch (err) {
-        console.error('Failed to copy:', err);
         return false;
     }
 }
 
-// Create and inject the custom button
+// Create button
 function createLogButton() {
-    // Look for Issue button
     const issueButtons = document.querySelectorAll('button, input[type="button"], a.button, a[class*="button"]');
     let targetButton = null;
     
@@ -230,17 +140,10 @@ function createLogButton() {
         }
     }
     
-    if (!targetButton) {
-        console.log('Issue button not found on this page');
+    if (!targetButton || document.getElementById('package-log-btn')) {
         return;
     }
     
-    // Check if our button already exists
-    if (document.getElementById('package-log-btn')) {
-        return;
-    }
-    
-    // Create our custom button
     const logButton = document.createElement('button');
     logButton.id = 'package-log-btn';
     logButton.textContent = 'Copy Log';
@@ -258,7 +161,6 @@ function createLogButton() {
         transition: all 0.2s ease;
     `;
     
-    // Hover effect
     logButton.addEventListener('mouseenter', () => {
         logButton.style.transform = 'translateY(-2px)';
         logButton.style.boxShadow = '0 4px 12px rgba(102, 126, 234, 0.4)';
@@ -269,7 +171,6 @@ function createLogButton() {
         logButton.style.boxShadow = '0 2px 8px rgba(102, 126, 234, 0.3)';
     });
     
-    // Click handler
     logButton.addEventListener('click', async (e) => {
         e.preventDefault();
         e.stopPropagation();
@@ -290,27 +191,19 @@ function createLogButton() {
                     logButton.textContent = originalText;
                     logButton.style.background = 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)';
                 }, 2000);
-            } else {
-                logButton.textContent = 'Copy Failed';
-                setTimeout(() => {
-                    logButton.textContent = 'Copy Log';
-                }, 2000);
             }
         } else {
             alert('Error: ' + result.error);
         }
     });
     
-    // Insert button next to Issue button
     targetButton.parentNode.insertBefore(logButton, targetButton.nextSibling);
 }
 
-// Show preview popup
+// Show preview
 function showPreview(text, data) {
     const existing = document.getElementById('log-preview-popup');
-    if (existing) {
-        existing.remove();
-    }
+    if (existing) existing.remove();
     
     const preview = document.createElement('div');
     preview.id = 'log-preview-popup';
@@ -348,7 +241,7 @@ function showPreview(text, data) {
     }, 4000);
 }
 
-// Add animation styles
+// Add styles
 const style = document.createElement('style');
 style.textContent = `
     @keyframes slideIn {
@@ -373,14 +266,7 @@ if (document.readyState === 'loading') {
     initialize();
 }
 
-// Watch for dynamic content changes
-const observer = new MutationObserver(() => {
-    initialize();
-});
+const observer = new MutationObserver(() => initialize());
+observer.observe(document.body, { childList: true, subtree: true });
 
-observer.observe(document.body, {
-    childList: true,
-    subtree: true
-});
-
-console.log('StarRez Package Logger extension loaded!');
+console.log('StarRez Package Logger loaded!');
