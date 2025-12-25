@@ -37,10 +37,17 @@ function getStudentDataFromRez360() {
         data.studentNumber = studentNumMatch[1];
     }
     
-    // Get room/bed space
-    const roomMatch = allText.match(/Room\s+([A-Z]{2,4}-\d{3}[a-z]?)(?:\/([A-Z]{2,4}-\d{3}[a-z]?))?/);
+    // FIXED: Get room/bed space - now handles complex formats like V1/REV/MKV-TNHSE-123a
+    // Pattern: Matches any combination of letters, numbers, slashes, and dashes ending in optional letter
+    const roomMatch = allText.match(/Room\s+([\w\/\-]+\d+[a-z]?)/i);
     if (roomMatch) {
-        data.roomSpace = roomMatch[2] || roomMatch[1];
+        let roomString = roomMatch[1];
+        // If there's a slash, take the last segment (most specific bed space)
+        if (roomString.includes('/')) {
+            const parts = roomString.split('/');
+            roomString = parts[parts.length - 1];
+        }
+        data.roomSpace = roomString;
     }
     
     return Object.keys(data).length > 0 ? data : null;
@@ -72,8 +79,8 @@ function getCurrentTime() {
     return `${hours}:${minutesStr} ${ampm}`;
 }
 
-// Generate log entry
-function generateLogEntry() {
+// Generate log entry with custom package count
+function generateLogEntry(packageCount = 1) {
     try {
         const staffName = getStaffName();
         const staffInitials = staffName ? getInitials(staffName) : 'XX';
@@ -94,7 +101,6 @@ function generateLogEntry() {
         
         const initials = getInitials(studentData.fullName);
         const time = getCurrentTime();
-        const packageCount = 1;
         
         const logEntry = `${initials} (${studentData.studentNumber}) ${studentData.roomSpace} ${packageCount} pkg${packageCount > 1 ? 's' : ''} @ ${time} - ${staffInitials}`;
         
@@ -127,30 +133,14 @@ async function copyToClipboard(text) {
     }
 }
 
-// Create button
-function createLogButton() {
-    const issueButtons = document.querySelectorAll('button, input[type="button"], a.button, a[class*="button"]');
-    let targetButton = null;
-    
-    for (let btn of issueButtons) {
-        const text = btn.textContent.toLowerCase();
-        if (text.includes('issue') && !text.includes('reissue')) {
-            targetButton = btn;
-            break;
-        }
-    }
-    
-    if (!targetButton || document.getElementById('package-log-btn')) {
-        return;
-    }
-    
-    const logButton = document.createElement('button');
-    logButton.id = 'package-log-btn';
-    logButton.textContent = 'Copy Log';
-    logButton.style.cssText = `
+// Create button helper
+function createStyledButton(text, gradient = 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)') {
+    const button = document.createElement('button');
+    button.textContent = text;
+    button.style.cssText = `
         margin-left: 10px;
         padding: 8px 16px;
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        background: ${gradient};
         color: white;
         border: none;
         border-radius: 6px;
@@ -161,43 +151,116 @@ function createLogButton() {
         transition: all 0.2s ease;
     `;
     
-    logButton.addEventListener('mouseenter', () => {
-        logButton.style.transform = 'translateY(-2px)';
-        logButton.style.boxShadow = '0 4px 12px rgba(102, 126, 234, 0.4)';
+    button.addEventListener('mouseenter', () => {
+        button.style.transform = 'translateY(-2px)';
+        button.style.boxShadow = '0 4px 12px rgba(102, 126, 234, 0.4)';
     });
     
-    logButton.addEventListener('mouseleave', () => {
-        logButton.style.transform = 'translateY(0)';
-        logButton.style.boxShadow = '0 2px 8px rgba(102, 126, 234, 0.3)';
+    button.addEventListener('mouseleave', () => {
+        button.style.transform = 'translateY(0)';
+        button.style.boxShadow = '0 2px 8px rgba(102, 126, 234, 0.3)';
     });
     
-    logButton.addEventListener('click', async (e) => {
-        e.preventDefault();
-        e.stopPropagation();
+    return button;
+}
+
+// FIXED: Create buttons for multiple packages
+function createLogButtons() {
+    // Find all Issue buttons
+    const issueButtons = Array.from(document.querySelectorAll('button, input[type="button"], a.button, a[class*="button"]')).filter(btn => {
+        const text = btn.textContent.toLowerCase();
+        return text.includes('issue') && !text.includes('reissue');
+    });
+    
+    if (issueButtons.length === 0) {
+        console.log('No Issue buttons found');
+        return;
+    }
+    
+    const packageCount = issueButtons.length;
+    
+    // EDGE CASE 2: If 2+ Issue buttons, add a master button for all packages
+    if (packageCount >= 2) {
+        const firstIssueButton = issueButtons[0];
         
-        const result = generateLogEntry();
-        
-        if (result.success) {
-            const copied = await copyToClipboard(result.logEntry);
+        // Check if master button already exists
+        if (!document.getElementById('package-log-master-btn')) {
+            const masterButton = createStyledButton(
+                `Copy ${packageCount} pkgs`,
+                'linear-gradient(135deg, #f093fb 0%, #f5576c 100%)'
+            );
+            masterButton.id = 'package-log-master-btn';
             
-            if (copied) {
-                const originalText = logButton.textContent;
-                logButton.textContent = 'Copied!';
-                logButton.style.background = 'linear-gradient(135deg, #11998e 0%, #38ef7d 100%)';
+            masterButton.addEventListener('click', async (e) => {
+                e.preventDefault();
+                e.stopPropagation();
                 
-                showPreview(result.logEntry, result.data);
+                const result = generateLogEntry(packageCount);
                 
-                setTimeout(() => {
-                    logButton.textContent = originalText;
-                    logButton.style.background = 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)';
-                }, 2000);
-            }
-        } else {
-            alert('Error: ' + result.error);
+                if (result.success) {
+                    const copied = await copyToClipboard(result.logEntry);
+                    
+                    if (copied) {
+                        const originalText = masterButton.textContent;
+                        masterButton.textContent = 'Copied!';
+                        masterButton.style.background = 'linear-gradient(135deg, #11998e 0%, #38ef7d 100%)';
+                        
+                        showPreview(result.logEntry, result.data);
+                        
+                        setTimeout(() => {
+                            masterButton.textContent = originalText;
+                            masterButton.style.background = 'linear-gradient(135deg, #f093fb 0%, #f5576c 100%)';
+                        }, 2000);
+                    }
+                } else {
+                    alert('Error: ' + result.error);
+                }
+            });
+            
+            firstIssueButton.parentNode.insertBefore(masterButton, firstIssueButton);
         }
-    });
+    }
     
-    targetButton.parentNode.insertBefore(logButton, targetButton.nextSibling);
+    // Add individual "Copy Log" buttons next to each Issue button
+    issueButtons.forEach((issueBtn, index) => {
+        const buttonId = `package-log-btn-${index}`;
+        
+        // Check if button already exists
+        if (document.getElementById(buttonId)) {
+            return;
+        }
+        
+        const logButton = createStyledButton('Copy Log');
+        logButton.id = buttonId;
+        
+        logButton.addEventListener('click', async (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            
+            const result = generateLogEntry(1); // Always 1 pkg for individual buttons
+            
+            if (result.success) {
+                const copied = await copyToClipboard(result.logEntry);
+                
+                if (copied) {
+                    const originalText = logButton.textContent;
+                    logButton.textContent = 'Copied!';
+                    logButton.style.background = 'linear-gradient(135deg, #11998e 0%, #38ef7d 100%)';
+                    
+                    showPreview(result.logEntry, result.data);
+                    
+                    setTimeout(() => {
+                        logButton.textContent = originalText;
+                        logButton.style.background = 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)';
+                    }, 2000);
+                }
+            } else {
+                alert('Error: ' + result.error);
+            }
+        });
+        
+        issueBtn.parentNode.insertBefore(logButton, issueBtn.nextSibling);
+    });
 }
 
 // Show preview
@@ -257,7 +320,7 @@ document.head.appendChild(style);
 
 // Initialize
 function initialize() {
-    createLogButton();
+    createLogButtons();
 }
 
 if (document.readyState === 'loading') {
