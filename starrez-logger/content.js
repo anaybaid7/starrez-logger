@@ -53,17 +53,27 @@ function getStudentDataFromRez360() {
     return Object.keys(data).length > 0 ? data : null;
 }
 
-// Get initials from full name
+// Get initials from full name in format: FirstInitials.LastInitials
 function getInitials(fullName) {
     if (fullName.includes(',')) {
         const parts = fullName.split(',').map(p => p.trim());
         const lastName = parts[0];
         const firstName = parts[1] || '';
-        const firstInitials = firstName.split(' ').map(n => n[0]).join('');
-        const lastInitial = lastName[0];
-        return (firstInitials + lastInitial).toUpperCase();
+        
+        // Get all initials from first name(s) and all initials from last name(s)
+        const firstInitials = firstName.split(' ').filter(n => n.length > 0).map(n => n[0]).join('');
+        const lastInitials = lastName.split(' ').filter(n => n.length > 0).map(n => n[0]).join('');
+        
+        return `${firstInitials}.${lastInitials}`.toUpperCase();
     }
+    
+    // Fallback for names without commas
     const nameParts = fullName.split(' ').filter(p => p.length > 0);
+    if (nameParts.length > 1) {
+        const last = nameParts.pop();
+        const firsts = nameParts.map(n => n[0]).join('');
+        return `${firsts}.${last[0]}`.toUpperCase();
+    }
     return nameParts.map(part => part[0]).join('').toUpperCase();
 }
 
@@ -179,7 +189,7 @@ function findParcelCountElement() {
 // FIXED: Create buttons for multiple packages
 function createLogButtons() {
     // Find all Issue buttons
-    const issueButtons = Array.from(document.querySelectorAll('button, input[type="button"], a.button, a[class*="button"]')).filter(btn => {
+    const issueButtons = Array.from(document.querySelectorAll('button, input[type=\"button\"], a.button, a[class*=\"button\"]')).filter(btn => {
         const text = btn.textContent.toLowerCase();
         return text.includes('issue') && !text.includes('reissue');
     });
@@ -191,7 +201,7 @@ function createLogButtons() {
     
     const packageCount = issueButtons.length;
     
-    // EDGE CASE 2: If 2+ Issue buttons, add a master button next to "X Parcels" text
+    // EDGE CASE 2: If 2+ Issue buttons, add a master button next to \"X Parcels\" text
     if (packageCount >= 2) {
         const parcelCountElement = findParcelCountElement();
         
@@ -230,12 +240,12 @@ function createLogButtons() {
                 }
             });
             
-            // Insert button right after the "X Parcels" span
+            // Insert button right after the \"X Parcels\" span
             parcelCountElement.parentNode.insertBefore(masterButton, parcelCountElement.nextSibling);
         }
     }
     
-    // Add individual "Copy Log" buttons next to each Issue button
+    // Add individual \"Copy Log\" buttons next to each Issue button
     issueButtons.forEach((issueBtn, index) => {
         const buttonId = `package-log-btn-${index}`;
         
@@ -300,13 +310,13 @@ function showPreview(text, data) {
         animation: slideIn 0.3s ease;
     `;
     
-    const staffInfo = data.staffName ? `<div style="font-size: 11px; color: #999; margin-bottom: 4px;">Logged by: ${data.staffName}</div>` : '';
-    const debugInfo = `<div style="font-size: 10px; color: #ccc; margin-top: 8px;">Student: ${data.fullName} | Room: ${data.roomSpace}</div>`;
+    const staffInfo = data.staffName ? `<div style=\"font-size: 11px; color: #999; margin-bottom: 4px;\">Logged by: ${data.staffName}</div>` : '';
+    const debugInfo = `<div style=\"font-size: 10px; color: #ccc; margin-top: 8px;\">Student: ${data.fullName} | Room: ${data.roomSpace}</div>`;
     
     preview.innerHTML = `
-        <div style="font-weight: bold; margin-bottom: 8px; color: #667eea;">Copied to Clipboard:</div>
+        <div style=\"font-weight: bold; margin-bottom: 8px; color: #667eea;\">Copied to Clipboard:</div>
         ${staffInfo}
-        <div style="background: #f7f7f7; padding: 8px; border-radius: 4px; word-break: break-all;">${text}</div>
+        <div style=\"background: #f7f7f7; padding: 8px; border-radius: 4px; word-break: break-all;\">${text}</div>
         ${debugInfo}
     `;
     
