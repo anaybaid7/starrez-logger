@@ -19,8 +19,11 @@ function getStaffName() {
 function getStudentDataFromRez360() {
     const data = {};
     
+    // Find the active detail container to ensure we don't pull data from other loaded profiles
+    const detailContainer = document.querySelector('.ui-tabs-panel:not(.ui-tabs-hide)') || document.body;
+
     // Get student name from breadcrumb (most reliable)
-    const breadcrumbs = document.querySelectorAll('habitat-header-breadcrumb-item');
+    const breadcrumbs = detailContainer.querySelectorAll('habitat-header-breadcrumb-item');
     for (let crumb of breadcrumbs) {
         const text = crumb.textContent.trim();
         // Must have comma, not be a navigation item
@@ -30,19 +33,17 @@ function getStudentDataFromRez360() {
         }
     }
     
-    // Get student number
-    const allText = document.body.innerText;
-    const studentNumMatch = allText.match(/Student Number\s+(\d{8})/);
+    // Get student number from within the container
+    const containerText = detailContainer.innerText;
+    const studentNumMatch = containerText.match(/Student Number\s+(\d{8})/);
     if (studentNumMatch) {
         data.studentNumber = studentNumMatch[1];
     }
     
-    // FIXED: Get room/bed space - now handles complex formats like V1/REV/MKV-TNHSE-123a
-    // Pattern: Matches any combination of letters, numbers, slashes, and dashes ending in optional letter
-    const roomMatch = allText.match(/Room\s+([\w\/\-]+\d+[a-z]?)/i);
+    // FIXED: Get room/bed space from within the container
+    const roomMatch = containerText.match(/Room\s+([\w\/\-]+\d+[a-z]?)/i);
     if (roomMatch) {
         let roomString = roomMatch[1];
-        // If there's a slash, take the last segment (most specific bed space)
         if (roomString.includes('/')) {
             const parts = roomString.split('/');
             roomString = parts[parts.length - 1];
@@ -93,7 +94,9 @@ function getCurrentTime() {
 function generateLogEntry(packageCount = 1) {
     try {
         const staffName = getStaffName();
-        const staffInitials = staffName ? getInitials(staffName) : 'XX';
+        // Force the dot format for staff initials specifically
+        const staffInitialsRaw = staffName ? getInitials(staffName) : 'X.X';
+        const staffInitials = staffInitialsRaw.includes('.') ? staffInitialsRaw : staffInitialsRaw.split('').join('.');
         
         const studentData = getStudentDataFromRez360();
         
