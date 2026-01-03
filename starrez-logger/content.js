@@ -40,17 +40,27 @@ function getStudentDataFromRez360() {
         data.studentNumber = studentNumMatch[1];
     }
     
-    // FIXED: Regex now explicitly IGNORES "Space", "Location", "Type" to avoid table headers
-    // It captures the first string after "Room" that is NOT one of those words
-    const roomMatch = containerText.match(/Room\s+(?!Space|Location|Type|Status\b)([A-Z0-9\-\/]+)/i);
+    // FIXED: Loop through all matches after "Room" to skip headers and find the actual code
+    const regex = /Room\s+([A-Z0-9\-\/]+)/gi;
+    let match;
+    const forbiddenWords = ['SPACE', 'OCCUPANCY', 'LOCATION', 'TYPE', 'STATUS', 'BOOKING'];
     
-    if (roomMatch) {
-        let roomString = roomMatch[1];
-        // If there's a slash (e.g. WAS-325c/WAS-325c), take the first part
-        if (roomString.includes('/')) {
-            roomString = roomString.split('/')[0];
+    while ((match = regex.exec(containerText)) !== null) {
+        let potentialRoom = match[1].trim();
+        let upperPotential = potentialRoom.toUpperCase();
+        
+        // Logic: Skip if it's a forbidden header word OR if it contains NO numbers 
+        // (Real room codes like CMH-123 or WAS-325 always have numbers)
+        if (forbiddenWords.includes(upperPotential) || !/\d/.test(potentialRoom)) {
+            continue;
         }
-        data.roomSpace = roomString;
+
+        // If we found a valid code, clean it (take part before slash) and save
+        if (potentialRoom.includes('/')) {
+            potentialRoom = potentialRoom.split('/')[0];
+        }
+        data.roomSpace = potentialRoom;
+        break; 
     }
     
     return Object.keys(data).length > 0 ? data : null;
@@ -63,14 +73,12 @@ function getInitials(fullName) {
         const lastName = parts[0];
         const firstName = parts[1] || '';
         
-        // Get all initials from first name(s) and all initials from last name(s)
         const firstInitials = firstName.split(' ').filter(n => n.length > 0).map(n => n[0]).join('');
         const lastInitials = lastName.split(' ').filter(n => n.length > 0).map(n => n[0]).join('');
         
         return `${firstInitials}.${lastInitials}`.toUpperCase();
     }
     
-    // Fallback for names without commas
     const nameParts = fullName.split(' ').filter(p => p.length > 0);
     if (nameParts.length > 1) {
         const last = nameParts.pop();
@@ -96,7 +104,6 @@ function getCurrentTime() {
 function generateLogEntry(packageCount = 1) {
     try {
         const staffName = getStaffName();
-        // Force the dot format for staff initials specifically
         const staffInitialsRaw = staffName ? getInitials(staffName) : 'X.X';
         const staffInitials = staffInitialsRaw.replace('.', ''); // Plain AB format
         
@@ -193,20 +200,17 @@ function findParcelCountElement() {
 
 // FIXED: Create buttons for multiple packages
 function createLogButtons() {
-    // Find all Issue buttons
     const issueButtons = Array.from(document.querySelectorAll('button, input[type=\"button\"], a.button, a[class*=\"button\"]')).filter(btn => {
         const text = btn.textContent.toLowerCase();
         return text.includes('issue') && !text.includes('reissue');
     });
     
     if (issueButtons.length === 0) {
-        console.log('No Issue buttons found');
         return;
     }
     
     const packageCount = issueButtons.length;
     
-    // EDGE CASE 2: If 2+ Issue buttons, add a master button next to \"X Parcels\" text
     if (packageCount >= 2) {
         const parcelCountElement = findParcelCountElement();
         
@@ -245,16 +249,13 @@ function createLogButtons() {
                 }
             });
             
-            // Insert button right after the \"X Parcels\" span
             parcelCountElement.parentNode.insertBefore(masterButton, parcelCountElement.nextSibling);
         }
     }
     
-    // Add individual \"Copy Log\" buttons next to each Issue button
     issueButtons.forEach((issueBtn, index) => {
         const buttonId = `package-log-btn-${index}`;
         
-        // Check if button already exists
         if (document.getElementById(buttonId)) {
             return;
         }
@@ -266,7 +267,7 @@ function createLogButtons() {
             e.preventDefault();
             e.stopPropagation();
             
-            const result = generateLogEntry(1); // Always 1 pkg for individual buttons
+            const result = generateLogEntry(1);
             
             if (result.success) {
                 const copied = await copyToClipboard(result.logEntry);
