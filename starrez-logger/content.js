@@ -38,39 +38,35 @@ function getStudentDataFromRez360() {
         data.studentNumber = snoMatch[1];
     }
 
-    // 3. ULTIMATE ROOM FIX: Reverse Search
-    // We get all elements that could be labels or values
-    const allElements = Array.from(detailContainer.querySelectorAll('div, td, span, .starrez-label'));
+    // 3. FIXED: Specific Room/Bedspace Extraction
+    // Get all potential label-value pairs
+    const allElements = Array.from(detailContainer.querySelectorAll('div, td, .starrez-label, .starrez-list-item-label'));
     
-    // We search from the BOTTOM of the page UPWARDS
-    // This hits the Rez 360 profile section before it hits any reports or tables at the top
+    // Search backwards (bottom-up) to find the primary "Room" field in the Rez 360 panel
     for (let i = allElements.length - 1; i >= 0; i--) {
         const text = allElements[i].innerText.trim();
         
-        if (text === 'Room' && allElements[i+1]) {
-            let roomValue = allElements[i+1].innerText.trim();
-            
-            // Check if it's a real room code (contains a dash and a number)
-            // This ignores things like "Location", "Space", or "Shah"
-            if (roomValue.includes('-') && /\d/.test(roomValue)) {
-                // If there's a slash (e.g. CMH-05213/CMH-05213b), take the second part
-                if (roomValue.includes('/')) {
-                    data.roomSpace = roomValue.split('/').pop().trim();
-                } else {
-                    data.roomSpace = roomValue;
+        if (text === 'Room') {
+            // Check the next few elements for the actual code (Building-Room)
+            // We look ahead up to 3 elements to skip over building names like "Claudette Millar Hall"
+            for (let j = 1; j <= 3; j++) {
+                if (allElements[i + j]) {
+                    const val = allElements[i + j].innerText.trim();
+                    // Pattern: Must contain a dash and at least one number (e.g., CMH-05213b)
+                    if (val.includes('-') && /\d/.test(val)) {
+                        // If it's a double entry (Room/Bedspace), take the last part
+                        data.roomSpace = val.includes('/') ? val.split('/').pop().trim() : val;
+                        return Object.keys(data).length > 0 ? data : null;
+                    }
                 }
-                break; // Stop as soon as we find the first valid room from the bottom
             }
         }
     }
 
-    // Secondary Fallback: Use the strict regex near the "Room Rate" section
+    // Fallback: Strict Regex for Building-Room code if the label search fails
     if (!data.roomSpace) {
-        const fallbackRegex = /Room\s+[\w\s\/]+\n\s*([A-Z0-9]{2,4}-[\d\w\/]+)/i;
-        const fallbackMatch = detailContainer.innerText.match(fallbackRegex);
-        if (fallbackMatch) {
-            data.roomSpace = fallbackMatch[1].includes('/') ? fallbackMatch[1].split('/').pop() : fallbackMatch[1];
-        }
+        const fallbackMatch = detailContainer.innerText.match(/\b([A-Z0-9]{2,4}-[\d\w]+[a-z]?)\b/);
+        if (fallbackMatch) data.roomSpace = fallbackMatch[1];
     }
     
     return Object.keys(data).length > 0 ? data : null;
@@ -139,9 +135,9 @@ async function copyToClipboard(text) {
 function createStyledButton(text, gradient = 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)') {
     const button = document.createElement('button');
     button.textContent = text;
-    button.style.cssText = `margin-left: 10px; padding: 8px 16px; background: ${gradient}; color: white; border: none; border-radius: 6px; cursor: pointer; font-weight: 600; font-size: 14px; box-shadow: 0 2px 8px rgba(102,126,234,0.3); transition: all 0.2s ease;`;
-    button.addEventListener('mouseenter', () => { button.style.transform = 'translateY(-2px)'; button.style.boxShadow = '0 4px 12px rgba(102,126,234,0.4)'; });
-    button.addEventListener('mouseleave', () => { button.style.transform = 'translateY(0)'; button.style.boxShadow = '0 2px 8px rgba(102,126,234,0.3)'; });
+    button.style.cssText = `margin-left: 10px; padding: 8px 16px; background: ${gradient}; color: white; border: none; border-radius: 6px; cursor: pointer; font-weight: 600; font-size: 14px; box-shadow: 0 2px 8px rgba(102, 126, 234, 0.3); transition: all 0.2s ease;`;
+    button.addEventListener('mouseenter', () => { button.style.transform = 'translateY(-2px)'; button.style.boxShadow = '0 4px 12px rgba(102, 126, 234, 0.4)'; });
+    button.addEventListener('mouseleave', () => { button.style.transform = 'translateY(0)'; button.style.boxShadow = '0 2px 8px rgba(102, 126, 234, 0.3)'; });
     return button;
 }
 
