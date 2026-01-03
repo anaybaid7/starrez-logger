@@ -38,18 +38,17 @@ function getStudentDataFromRez360() {
         data.studentNumber = snoMatch[1];
     }
 
-    // 3. FIXED: Specific extraction for the Rez 360 Room Block
-    // We look for the pattern: Building Name followed by Room Code (e.g., Hall CMH-05213b)
-    // This regex looks for 3-4 uppercase letters, a dash, and digits (The standard Room format)
+    // 3. FIXED: Capture the FULL room/bedspace string (allows multiple dashes, letters, and slashes)
     const containerText = detailContainer.innerText;
     
-    // This finds the pattern BuildingName [New Line] RoomCode/RoomCode
-    const roomPattern = /Room\s+[\s\S]*?\n([\w\s\/]+)\n([A-Z]{2,4}-[\d\w\/]+)/i;
+    // This finds "Room", skips the building name line, and grabs the code line entirely
+    // It captures strings like CMH-08216a or REV-WE-100b
+    const roomPattern = /Room\s+[\s\S]*?\n[\s\S]*?\n\s*([A-Z0-9\-\/]+[a-z]?)/i;
     const match = containerText.match(roomPattern);
 
-    if (match && match[2]) {
-        let roomString = match[2].trim();
-        // If there's a slash (e.g. CMH-05213/CMH-05213b), take the part after the slash
+    if (match && match[1]) {
+        let roomString = match[1].trim();
+        // If there's a slash (e.g. CMH-08216/CMH-08216a), take the part after the slash
         if (roomString.includes('/')) {
             const parts = roomString.split('/');
             roomString = parts[parts.length - 1];
@@ -57,12 +56,10 @@ function getStudentDataFromRez360() {
         data.roomSpace = roomString;
     }
 
-    // Fallback: If the structured match failed, find the last Room-formatted string on the page 
-    // that is NOT one of the headers.
+    // Fallback: Use a wider regex to find the most "room-like" string in the main info area
     if (!data.roomSpace) {
-        const allMatches = [...containerText.matchAll(/\b([A-Z]{2,4}-\d+[\w]*)\b/g)];
+        const allMatches = [...containerText.matchAll(/\b([A-Z]{2,4}-[\d\w\-]+[a-z]?)\b/g)];
         if (allMatches.length > 0) {
-            // Take the last one found, as Rez 360 data usually loads after reports
             data.roomSpace = allMatches[allMatches.length - 1][0];
         }
     }
