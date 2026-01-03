@@ -40,9 +40,8 @@ function getStudentDataFromRez360() {
         data.studentNumber = studentNumMatch[1];
     }
     
-    // FIXED: Narrower room regex to prioritize Building-Room format (e.g., CMH-05213)
-    // Looks specifically for text following the "Room" label
-    const roomMatch = containerText.match(/Room\s+([A-Z]{3,4}-[\d\w]+)/i);
+    // FIXED: Target the specific Room field format while ignoring other text
+    const roomMatch = containerText.match(/Room\s+([A-Z0-9\-]+\d+[a-z]?)/i);
     if (roomMatch) {
         let roomString = roomMatch[1];
         // If there's a slash (e.g. CMH-05213/CMH-05213b), take the first part
@@ -97,7 +96,7 @@ function generateLogEntry(packageCount = 1) {
         const staffName = getStaffName();
         // Force the dot format for staff initials specifically
         const staffInitialsRaw = staffName ? getInitials(staffName) : 'X.X';
-        const staffInitials = staffInitialsRaw.replace('.', ''); // Plain AB format
+        const staffInitials = staffInitialsRaw.includes('.') ? staffInitialsRaw : staffInitialsRaw.split('').join('.');
         
         const studentData = getStudentDataFromRez360();
         
@@ -192,27 +191,20 @@ function findParcelCountElement() {
 
 // FIXED: Create buttons for multiple packages
 function createLogButtons() {
-    // RESTRICTION: Only run inside a container that looks like the Parcels section
-    const parcelSection = Array.from(document.querySelectorAll('section, div')).find(el => {
-        const header = el.querySelector('h1, h2, h3, .ui-widget-header');
-        return header && header.textContent.includes('Parcels');
-    });
-
-    if (!parcelSection) return;
-
-    // Find all Issue buttons ONLY in the parcel section
-    const issueButtons = Array.from(parcelSection.querySelectorAll('button, input[type=\"button\"], a.button, a[class*=\"button\"]')).filter(btn => {
+    // Find all Issue buttons
+    const issueButtons = Array.from(document.querySelectorAll('button, input[type=\"button\"], a.button, a[class*=\"button\"]')).filter(btn => {
         const text = btn.textContent.toLowerCase();
         return text.includes('issue') && !text.includes('reissue');
     });
     
     if (issueButtons.length === 0) {
+        console.log('No Issue buttons found');
         return;
     }
     
     const packageCount = issueButtons.length;
     
-    // Add master button next to \"X Parcels\" text
+    // EDGE CASE 2: If 2+ Issue buttons, add a master button next to \"X Parcels\" text
     if (packageCount >= 2) {
         const parcelCountElement = findParcelCountElement();
         
@@ -251,14 +243,16 @@ function createLogButtons() {
                 }
             });
             
+            // Insert button right after the \"X Parcels\" span
             parcelCountElement.parentNode.insertBefore(masterButton, parcelCountElement.nextSibling);
         }
     }
     
-    // Add individual \"Copy Log\" buttons
+    // Add individual \"Copy Log\" buttons next to each Issue button
     issueButtons.forEach((issueBtn, index) => {
         const buttonId = `package-log-btn-${index}`;
         
+        // Check if button already exists
         if (document.getElementById(buttonId)) {
             return;
         }
@@ -270,7 +264,7 @@ function createLogButtons() {
             e.preventDefault();
             e.stopPropagation();
             
-            const result = generateLogEntry(1);
+            const result = generateLogEntry(1); // Always 1 pkg for individual buttons
             
             if (result.success) {
                 const copied = await copyToClipboard(result.logEntry);
