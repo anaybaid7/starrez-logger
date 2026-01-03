@@ -22,7 +22,7 @@ function getStudentDataFromRez360() {
     // Find the active detail container
     const detailContainer = document.querySelector('.ui-tabs-panel:not(.ui-tabs-hide)') || document.body;
 
-    // 1. Get student name from breadcrumb (most reliable)
+    // 1. Get student name from breadcrumb
     const breadcrumbs = detailContainer.querySelectorAll('habitat-header-breadcrumb-item');
     for (let crumb of breadcrumbs) {
         const text = crumb.textContent.trim();
@@ -38,37 +38,32 @@ function getStudentDataFromRez360() {
         data.studentNumber = snoMatch[1];
     }
 
-    // 3. FIXED: Target the main student booking/info panel specifically
-    // We look for a container that has both "Room" and "Dates" or "Contract Dates"
-    const allDivs = Array.from(detailContainer.querySelectorAll('div, section, .ui-widget-content'));
-    const bookingPanel = allDivs.find(el => {
-        const text = el.innerText;
-        return text.includes('Room') && (text.includes('Contract Dates') || text.includes('Room Rate'));
-    });
+    // 3. FIXED: Specific extraction for the Rez 360 Room Block
+    // We look for the pattern: Building Name followed by Room Code (e.g., Hall CMH-05213b)
+    // This regex looks for 3-4 uppercase letters, a dash, and digits (The standard Room format)
+    const containerText = detailContainer.innerText;
+    
+    // This finds the pattern BuildingName [New Line] RoomCode/RoomCode
+    const roomPattern = /Room\s+[\s\S]*?\n([\w\s\/]+)\n([A-Z]{2,4}-[\d\w\/]+)/i;
+    const match = containerText.match(roomPattern);
 
-    if (bookingPanel) {
-        const panelText = bookingPanel.innerText;
-        // Specifically look for the Room label followed by building-room code
-        const roomMatch = panelText.match(/Room\s+([A-Z0-9\-]+\/[A-Z0-9\-]+)/i) || 
-                          panelText.match(/Room\s+([A-Z0-9]{2,4}-[\d\w]+[a-z]?)/i);
-        
-        if (roomMatch) {
-            let roomString = roomMatch[1];
-            // If there's a slash (e.g. CMH-05213/CMH-05213b), take the part AFTER the slash (the bedspace)
-            if (roomString.includes('/')) {
-                const parts = roomString.split('/');
-                roomString = parts[parts.length - 1];
-            }
-            data.roomSpace = roomString.trim();
+    if (match && match[2]) {
+        let roomString = match[2].trim();
+        // If there's a slash (e.g. CMH-05213/CMH-05213b), take the part after the slash
+        if (roomString.includes('/')) {
+            const parts = roomString.split('/');
+            roomString = parts[parts.length - 1];
         }
+        data.roomSpace = roomString;
     }
 
-    // Secondary Fallback: If panel logic fails, get the very last Building-Room code on the page
+    // Fallback: If the structured match failed, find the last Room-formatted string on the page 
+    // that is NOT one of the headers.
     if (!data.roomSpace) {
-        const allText = detailContainer.innerText;
-        const matches = [...allText.matchAll(/([A-Z]{2,4}-\d{3,5}[a-z]?)/g)];
-        if (matches.length > 0) {
-            data.roomSpace = matches[matches.length - 1][0];
+        const allMatches = [...containerText.matchAll(/\b([A-Z]{2,4}-\d+[\w]*)\b/g)];
+        if (allMatches.length > 0) {
+            // Take the last one found, as Rez 360 data usually loads after reports
+            data.roomSpace = allMatches[allMatches.length - 1][0];
         }
     }
     
@@ -110,10 +105,7 @@ function getCurrentTime() {
 function generateLogEntry(packageCount = 1) {
     try {
         const staffName = getStaffName();
-        // Force the dot format for staff initials specifically
-        const staffInitialsRaw = staffName ? getInitials(staffName) : 'X.X';
-        const staffInitials = staffInitialsRaw.replace('.', ''); // Plain AB format
-        
+        const staffInitials = staffName ? getInitials(staffName).replace('.', '') : 'XX';
         const studentData = getStudentDataFromRez360();
         
         if (!studentData || !studentData.fullName) return { success: false, error: 'Could not find student name' };
@@ -122,7 +114,6 @@ function generateLogEntry(packageCount = 1) {
         
         const initials = getInitials(studentData.fullName);
         const time = getCurrentTime();
-        
         const logEntry = `${initials} (${studentData.studentNumber}) ${studentData.roomSpace} ${packageCount} pkg${packageCount > 1 ? 's' : ''} @ ${time} - ${staffInitials}`;
         
         return {
@@ -135,17 +126,10 @@ function generateLogEntry(packageCount = 1) {
     }
 }
 
-// Copy to clipboard
 async function copyToClipboard(text) {
-    try {
-        await navigator.clipboard.writeText(text);
-        return true;
-    } catch (err) {
-        return false;
-    }
+    try { await navigator.clipboard.writeText(text); return true; } catch (err) { return false; }
 }
 
-// Create button helper
 function createStyledButton(text, gradient = 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)') {
     const button = document.createElement('button');
     button.textContent = text;
@@ -155,7 +139,6 @@ function createStyledButton(text, gradient = 'linear-gradient(135deg, #667eea 0%
     return button;
 }
 
-// Find the "X Parcels" span element
 function findParcelCountElement() {
     const spans = Array.from(document.querySelectorAll('span'));
     for (let span of spans) {
@@ -165,7 +148,6 @@ function findParcelCountElement() {
     return null;
 }
 
-// FIXED: Create buttons for multiple packages
 function createLogButtons() {
     const issueButtons = Array.from(document.querySelectorAll('button, input[type=\"button\"], a.button, a[class*=\"button\"]')).filter(btn => {
         const text = btn.textContent.toLowerCase();
@@ -218,7 +200,6 @@ function createLogButtons() {
     });
 }
 
-// Show preview
 function showPreview(text, data) {
     const existing = document.getElementById('log-preview-popup');
     if (existing) existing.remove();
@@ -226,28 +207,17 @@ function showPreview(text, data) {
     preview.id = 'log-preview-popup';
     preview.style.cssText = `position: fixed; top: 20px; right: 20px; background: white; border: 2px solid #667eea; border-radius: 8px; padding: 16px; box-shadow: 0 4px 20px rgba(0,0,0,0.15); z-index: 10000; max-width: 400px; font-family: monospace; font-size: 13px; animation: slideIn 0.3s ease;`;
     const staffInfo = data.staffName ? `<div style=\"font-size: 11px; color: #999; margin-bottom: 4px;\">Logged by: ${data.staffName}</div>` : '';
-    const debugInfo = `<div style=\"font-size: 10px; color: #ccc; margin-top: 8px;\">Student: ${data.fullName} | Room: ${data.roomSpace}</div>`;
-    preview.innerHTML = `<div style=\"font-weight: bold; margin-bottom: 8px; color: #667eea;\">Copied to Clipboard:</div>${staffInfo}<div style=\"background: #f7f7f7; padding: 8px; border-radius: 4px; word-break: break-all;\">${text}</div>${debugInfo}`;
+    preview.innerHTML = `<div style=\"font-weight: bold; margin-bottom: 8px; color: #667eea;\">Copied to Clipboard:</div>${staffInfo}<div style=\"background: #f7f7f7; padding: 8px; border-radius: 4px; word-break: break-all;\">${text}</div><div style=\"font-size: 10px; color: #ccc; margin-top: 8px;\">Student: ${data.fullName} | Room: ${data.roomSpace}</div>`;
     document.body.appendChild(preview);
     setTimeout(() => { preview.style.animation = 'slideOut 0.3s ease'; setTimeout(() => preview.remove(), 300); }, 4000);
 }
 
-// Add styles
 const style = document.createElement('style');
 style.textContent = `@keyframes slideIn { from { transform: translateX(400px); opacity: 0; } to { transform: translateX(0); opacity: 1; } } @keyframes slideOut { from { transform: translateX(0); opacity: 1; } to { transform: translateX(400px); opacity: 0; } }`;
 document.head.appendChild(style);
 
-// Initialize
-function initialize() {
-    createLogButtons();
-}
-
-if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', initialize);
-} else {
-    initialize();
-}
-
+function initialize() { createLogButtons(); }
+if (document.readyState === 'loading') { document.addEventListener('DOMContentLoaded', initialize); } else { initialize(); }
 const observer = new MutationObserver(() => initialize());
 observer.observe(document.body, { childList: true, subtree: true });
 
