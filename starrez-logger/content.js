@@ -40,11 +40,11 @@ function getStudentDataFromRez360() {
         data.studentNumber = studentNumMatch[1];
     }
     
-    // FIXED: Target the specific Room field format while ignoring other text
-    const roomMatch = containerText.match(/Room\s+([A-Z0-9\-]+\d+[a-z]?)/i);
+    // FIXED: CAPTURE ANY ROOM (A-Z, 0-9, dashes) of any length following the "Room" label
+    const roomMatch = containerText.match(/Room\s+([A-Z0-9\-]+)/i);
     if (roomMatch) {
         let roomString = roomMatch[1];
-        // If there's a slash (e.g. CMH-05213/CMH-05213b), take the first part
+        // If there's a slash (e.g. WAS-325c/WAS-325c), take the first part
         if (roomString.includes('/')) {
             roomString = roomString.split('/')[0];
         }
@@ -96,7 +96,7 @@ function generateLogEntry(packageCount = 1) {
         const staffName = getStaffName();
         // Force the dot format for staff initials specifically
         const staffInitialsRaw = staffName ? getInitials(staffName) : 'X.X';
-        const staffInitials = staffInitialsRaw.includes('.') ? staffInitialsRaw : staffInitialsRaw.split('').join('.');
+        const staffInitials = staffInitialsRaw.replace('.', ''); // Plain AB format
         
         const studentData = getStudentDataFromRez360();
         
