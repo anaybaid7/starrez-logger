@@ -40,7 +40,7 @@ function getStudentDataFromRez360() {
         data.studentNumber = studentNumMatch[1];
     }
     
-    // FIXED: Loop through all matches after "Room" to skip headers and find the actual code
+    // FIXED: Loop through matches to find actual code and grab the part AFTER the slash for bedspace
     const regex = /Room\s+([A-Z0-9\-\/]+)/gi;
     let match;
     const forbiddenWords = ['SPACE', 'OCCUPANCY', 'LOCATION', 'TYPE', 'STATUS', 'BOOKING'];
@@ -49,15 +49,14 @@ function getStudentDataFromRez360() {
         let potentialRoom = match[1].trim();
         let upperPotential = potentialRoom.toUpperCase();
         
-        // Logic: Skip if it's a forbidden header word OR if it contains NO numbers 
-        // (Real room codes like CMH-123 or WAS-325 always have numbers)
         if (forbiddenWords.includes(upperPotential) || !/\d/.test(potentialRoom)) {
             continue;
         }
 
-        // If we found a valid code, clean it (take part before slash) and save
+        // UPDATED LOGIC: If there is a slash, take the SECOND part (the specific bed space 'a', 'b', etc)
         if (potentialRoom.includes('/')) {
-            potentialRoom = potentialRoom.split('/')[0];
+            const parts = potentialRoom.split('/');
+            potentialRoom = parts[parts.length - 1];
         }
         data.roomSpace = potentialRoom;
         break; 
