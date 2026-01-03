@@ -22,11 +22,11 @@ function getStudentDataFromRez360() {
     // Find the active detail container
     const detailContainer = document.querySelector('.ui-tabs-panel:not(.ui-tabs-hide)') || document.body;
 
-    // 1. Get student name from breadcrumb
+    // 1. Get student name from breadcrumb (most reliable)
     const breadcrumbs = detailContainer.querySelectorAll('habitat-header-breadcrumb-item');
     for (let crumb of breadcrumbs) {
         const text = crumb.textContent.trim();
-        if (text.includes(',') && !text.includes('Dashboard') && !text.includes('Desk') && !text.includes('Front')) {
+        if (text.includes(',') && !text.includes('Dashboard') && !text.includes('Desk')) {
             data.fullName = text;
             break;
         }
@@ -38,29 +38,38 @@ function getStudentDataFromRez360() {
         data.studentNumber = snoMatch[1];
     }
 
-    // 3. FIXED: Capture the FULL room/bedspace string (allows multiple dashes, letters, and slashes)
-    const containerText = detailContainer.innerText;
+    // 3. ULTIMATE ROOM FIX: Reverse Search
+    // We get all elements that could be labels or values
+    const allElements = Array.from(detailContainer.querySelectorAll('div, td, span, .starrez-label'));
     
-    // This finds "Room", skips the building name line, and grabs the code line entirely
-    // It captures strings like CMH-08216a or REV-WE-100b
-    const roomPattern = /Room\s+[\s\S]*?\n[\s\S]*?\n\s*([A-Z0-9\-\/]+[a-z]?)/i;
-    const match = containerText.match(roomPattern);
-
-    if (match && match[1]) {
-        let roomString = match[1].trim();
-        // If there's a slash (e.g. CMH-08216/CMH-08216a), take the part after the slash
-        if (roomString.includes('/')) {
-            const parts = roomString.split('/');
-            roomString = parts[parts.length - 1];
+    // We search from the BOTTOM of the page UPWARDS
+    // This hits the Rez 360 profile section before it hits any reports or tables at the top
+    for (let i = allElements.length - 1; i >= 0; i--) {
+        const text = allElements[i].innerText.trim();
+        
+        if (text === 'Room' && allElements[i+1]) {
+            let roomValue = allElements[i+1].innerText.trim();
+            
+            // Check if it's a real room code (contains a dash and a number)
+            // This ignores things like "Location", "Space", or "Shah"
+            if (roomValue.includes('-') && /\d/.test(roomValue)) {
+                // If there's a slash (e.g. CMH-05213/CMH-05213b), take the second part
+                if (roomValue.includes('/')) {
+                    data.roomSpace = roomValue.split('/').pop().trim();
+                } else {
+                    data.roomSpace = roomValue;
+                }
+                break; // Stop as soon as we find the first valid room from the bottom
+            }
         }
-        data.roomSpace = roomString;
     }
 
-    // Fallback: Use a wider regex to find the most "room-like" string in the main info area
+    // Secondary Fallback: Use the strict regex near the "Room Rate" section
     if (!data.roomSpace) {
-        const allMatches = [...containerText.matchAll(/\b([A-Z]{2,4}-[\d\w\-]+[a-z]?)\b/g)];
-        if (allMatches.length > 0) {
-            data.roomSpace = allMatches[allMatches.length - 1][0];
+        const fallbackRegex = /Room\s+[\w\s\/]+\n\s*([A-Z0-9]{2,4}-[\d\w\/]+)/i;
+        const fallbackMatch = detailContainer.innerText.match(fallbackRegex);
+        if (fallbackMatch) {
+            data.roomSpace = fallbackMatch[1].includes('/') ? fallbackMatch[1].split('/').pop() : fallbackMatch[1];
         }
     }
     
@@ -130,9 +139,9 @@ async function copyToClipboard(text) {
 function createStyledButton(text, gradient = 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)') {
     const button = document.createElement('button');
     button.textContent = text;
-    button.style.cssText = `margin-left: 10px; padding: 8px 16px; background: ${gradient}; color: white; border: none; border-radius: 6px; cursor: pointer; font-weight: 600; font-size: 14px; box-shadow: 0 2px 8px rgba(102, 126, 234, 0.3); transition: all 0.2s ease;`;
-    button.addEventListener('mouseenter', () => { button.style.transform = 'translateY(-2px)'; button.style.boxShadow = '0 4px 12px rgba(102, 126, 234, 0.4)'; });
-    button.addEventListener('mouseleave', () => { button.style.transform = 'translateY(0)'; button.style.boxShadow = '0 2px 8px rgba(102, 126, 234, 0.3)'; });
+    button.style.cssText = `margin-left: 10px; padding: 8px 16px; background: ${gradient}; color: white; border: none; border-radius: 6px; cursor: pointer; font-weight: 600; font-size: 14px; box-shadow: 0 2px 8px rgba(102,126,234,0.3); transition: all 0.2s ease;`;
+    button.addEventListener('mouseenter', () => { button.style.transform = 'translateY(-2px)'; button.style.boxShadow = '0 4px 12px rgba(102,126,234,0.4)'; });
+    button.addEventListener('mouseleave', () => { button.style.transform = 'translateY(0)'; button.style.boxShadow = '0 2px 8px rgba(102,126,234,0.3)'; });
     return button;
 }
 
