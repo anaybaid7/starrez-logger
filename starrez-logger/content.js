@@ -188,7 +188,6 @@ function findParcelCountElement() {
 
 // FIXED: Create buttons ONLY in the Parcels section
 function createLogButtons() {
-    // 1. Find the Parcels Section Container
     const parcelSection = Array.from(document.querySelectorAll('section, div')).find(el => {
         const header = el.querySelector('h1, h2, h3, .ui-widget-header');
         return header && header.textContent.includes('Parcels');
@@ -196,7 +195,6 @@ function createLogButtons() {
 
     if (!parcelSection) return;
 
-    // 2. Find Issue buttons ONLY within that section
     const issueButtons = Array.from(parcelSection.querySelectorAll('button, input[type=\"button\"], a.button, a[class*=\"button\"]')).filter(btn => {
         const text = btn.textContent.toLowerCase();
         return text.includes('issue') && !text.includes('reissue');
@@ -206,7 +204,6 @@ function createLogButtons() {
     
     const packageCount = issueButtons.length;
     
-    // Master button for 2+ packages
     if (packageCount >= 2) {
         const parcelCountElement = findParcelCountElement();
         if (parcelCountElement && !document.getElementById('package-log-master-btn')) {
@@ -242,7 +239,6 @@ function createLogButtons() {
         }
     }
     
-    // Individual Copy Log buttons
     issueButtons.forEach((issueBtn, index) => {
         const buttonId = `package-log-btn-${index}`;
         if (document.getElementById(buttonId)) return;
@@ -300,7 +296,6 @@ function showPreview(text, data) {
     }, 4000);
 }
 
-// Add styles
 const style = document.createElement('style');
 style.textContent = `
     @keyframes slideIn { from { transform: translateX(400px); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
@@ -308,7 +303,6 @@ style.textContent = `
 `;
 document.head.appendChild(style);
 
-// Initialize
 function initialize() {
     createLogButtons();
 }
