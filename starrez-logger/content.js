@@ -61,12 +61,14 @@ function getInitials(fullName) {
         const lastName = parts[0];
         const firstName = parts[1] || '';
         
+        // Get all initials from first name(s) and all initials from last name(s)
         const firstInitials = firstName.split(' ').filter(n => n.length > 0).map(n => n[0]).join('');
         const lastInitials = lastName.split(' ').filter(n => n.length > 0).map(n => n[0]).join('');
         
         return `${firstInitials}.${lastInitials}`.toUpperCase();
     }
     
+    // Fallback for names without commas
     const nameParts = fullName.split(' ').filter(p => p.length > 0);
     if (nameParts.length > 1) {
         const last = nameParts.pop();
@@ -92,8 +94,9 @@ function getCurrentTime() {
 function generateLogEntry(packageCount = 1) {
     try {
         const staffName = getStaffName();
-        // Staff initials: No dots (e.g., AB)
-        const staffInitials = staffName ? getInitials(staffName).replace('.', '') : 'XX';
+        // Force the dot format for staff initials specifically
+        const staffInitialsRaw = staffName ? getInitials(staffName) : 'X.X';
+        const staffInitials = staffInitialsRaw.includes('.') ? staffInitialsRaw : staffInitialsRaw.split('').join('.');
         
         const studentData = getStudentDataFromRez360();
         
@@ -186,26 +189,25 @@ function findParcelCountElement() {
     return null;
 }
 
-// FIXED: Create buttons ONLY in the Parcels section
+// FIXED: Create buttons for multiple packages
 function createLogButtons() {
-    const parcelSection = Array.from(document.querySelectorAll('section, div')).find(el => {
-        const header = el.querySelector('h1, h2, h3, .ui-widget-header');
-        return header && header.textContent.includes('Parcels');
-    });
-
-    if (!parcelSection) return;
-
-    const issueButtons = Array.from(parcelSection.querySelectorAll('button, input[type=\"button\"], a.button, a[class*=\"button\"]')).filter(btn => {
+    // Find all Issue buttons
+    const issueButtons = Array.from(document.querySelectorAll('button, input[type=\"button\"], a.button, a[class*=\"button\"]')).filter(btn => {
         const text = btn.textContent.toLowerCase();
         return text.includes('issue') && !text.includes('reissue');
     });
     
-    if (issueButtons.length === 0) return;
+    if (issueButtons.length === 0) {
+        console.log('No Issue buttons found');
+        return;
+    }
     
     const packageCount = issueButtons.length;
     
+    // EDGE CASE 2: If 2+ Issue buttons, add a master button next to \"X Parcels\" text
     if (packageCount >= 2) {
         const parcelCountElement = findParcelCountElement();
+        
         if (parcelCountElement && !document.getElementById('package-log-master-btn')) {
             const masterButton = createStyledButton(
                 `Copy ${packageCount} pkgs`,
@@ -218,14 +220,19 @@ function createLogButtons() {
             masterButton.addEventListener('click', async (e) => {
                 e.preventDefault();
                 e.stopPropagation();
+                
                 const result = generateLogEntry(packageCount);
+                
                 if (result.success) {
                     const copied = await copyToClipboard(result.logEntry);
+                    
                     if (copied) {
                         const originalText = masterButton.textContent;
                         masterButton.textContent = 'Copied!';
                         masterButton.style.background = 'linear-gradient(135deg, #11998e 0%, #38ef7d 100%)';
+                        
                         showPreview(result.logEntry, result.data);
+                        
                         setTimeout(() => {
                             masterButton.textContent = originalText;
                             masterButton.style.background = 'linear-gradient(135deg, #f093fb 0%, #f5576c 100%)';
@@ -235,27 +242,40 @@ function createLogButtons() {
                     alert('Error: ' + result.error);
                 }
             });
+            
+            // Insert button right after the \"X Parcels\" span
             parcelCountElement.parentNode.insertBefore(masterButton, parcelCountElement.nextSibling);
         }
     }
     
+    // Add individual \"Copy Log\" buttons next to each Issue button
     issueButtons.forEach((issueBtn, index) => {
         const buttonId = `package-log-btn-${index}`;
-        if (document.getElementById(buttonId)) return;
+        
+        // Check if button already exists
+        if (document.getElementById(buttonId)) {
+            return;
+        }
         
         const logButton = createStyledButton('Copy Log');
         logButton.id = buttonId;
+        
         logButton.addEventListener('click', async (e) => {
             e.preventDefault();
             e.stopPropagation();
-            const result = generateLogEntry(1);
+            
+            const result = generateLogEntry(1); // Always 1 pkg for individual buttons
+            
             if (result.success) {
                 const copied = await copyToClipboard(result.logEntry);
+                
                 if (copied) {
                     const originalText = logButton.textContent;
                     logButton.textContent = 'Copied!';
                     logButton.style.background = 'linear-gradient(135deg, #11998e 0%, #38ef7d 100%)';
+                    
                     showPreview(result.logEntry, result.data);
+                    
                     setTimeout(() => {
                         logButton.textContent = originalText;
                         logButton.style.background = 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)';
@@ -265,6 +285,7 @@ function createLogButtons() {
                 alert('Error: ' + result.error);
             }
         });
+        
         issueBtn.parentNode.insertBefore(logButton, issueBtn.nextSibling);
     });
 }
@@ -273,36 +294,58 @@ function createLogButtons() {
 function showPreview(text, data) {
     const existing = document.getElementById('log-preview-popup');
     if (existing) existing.remove();
+    
     const preview = document.createElement('div');
     preview.id = 'log-preview-popup';
     preview.style.cssText = `
-        position: fixed; top: 20px; right: 20px; background: white; border: 2px solid #667eea;
-        border-radius: 8px; padding: 16px; box-shadow: 0 4px 20px rgba(0,0,0,0.15);
-        z-index: 10000; max-width: 400px; font-family: monospace; font-size: 13px;
+        position: fixed;
+        top: 20px;
+        right: 20px;
+        background: white;
+        border: 2px solid #667eea;
+        border-radius: 8px;
+        padding: 16px;
+        box-shadow: 0 4px 20px rgba(0,0,0,0.15);
+        z-index: 10000;
+        max-width: 400px;
+        font-family: monospace;
+        font-size: 13px;
         animation: slideIn 0.3s ease;
     `;
+    
     const staffInfo = data.staffName ? `<div style=\"font-size: 11px; color: #999; margin-bottom: 4px;\">Logged by: ${data.staffName}</div>` : '';
     const debugInfo = `<div style=\"font-size: 10px; color: #ccc; margin-top: 8px;\">Student: ${data.fullName} | Room: ${data.roomSpace}</div>`;
+    
     preview.innerHTML = `
         <div style=\"font-weight: bold; margin-bottom: 8px; color: #667eea;\">Copied to Clipboard:</div>
         ${staffInfo}
         <div style=\"background: #f7f7f7; padding: 8px; border-radius: 4px; word-break: break-all;\">${text}</div>
         ${debugInfo}
     `;
+    
     document.body.appendChild(preview);
+    
     setTimeout(() => {
         preview.style.animation = 'slideOut 0.3s ease';
         setTimeout(() => preview.remove(), 300);
     }, 4000);
 }
 
+// Add styles
 const style = document.createElement('style');
 style.textContent = `
-    @keyframes slideIn { from { transform: translateX(400px); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
-    @keyframes slideOut { from { transform: translateX(0); opacity: 1; } to { transform: translateX(400px); opacity: 0; } }
+    @keyframes slideIn {
+        from { transform: translateX(400px); opacity: 0; }
+        to { transform: translateX(0); opacity: 1; }
+    }
+    @keyframes slideOut {
+        from { transform: translateX(0); opacity: 1; }
+        to { transform: translateX(400px); opacity: 0; }
+    }
 `;
 document.head.appendChild(style);
 
+// Initialize
 function initialize() {
     createLogButtons();
 }
