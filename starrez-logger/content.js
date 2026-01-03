@@ -40,8 +40,10 @@ function getStudentDataFromRez360() {
         data.studentNumber = studentNumMatch[1];
     }
     
-    // FIXED: CAPTURE ANY ROOM (A-Z, 0-9, dashes) of any length following the "Room" label
-    const roomMatch = containerText.match(/Room\s+([A-Z0-9\-]+)/i);
+    // FIXED: Regex now explicitly IGNORES "Space", "Location", "Type" to avoid table headers
+    // It captures the first string after "Room" that is NOT one of those words
+    const roomMatch = containerText.match(/Room\s+(?!Space|Location|Type|Status\b)([A-Z0-9\-\/]+)/i);
+    
     if (roomMatch) {
         let roomString = roomMatch[1];
         // If there's a slash (e.g. WAS-325c/WAS-325c), take the first part
