@@ -19,8 +19,11 @@ function getStaffName() {
 function getStudentDataFromRez360() {
     const data = {};
     
+    // Find the active detail container to ensure we don't pull data from other loaded profiles
+    const detailContainer = document.querySelector('.ui-tabs-panel:not(.ui-tabs-hide)') || document.body;
+
     // Get student name from breadcrumb (most reliable)
-    const breadcrumbs = document.querySelectorAll('habitat-header-breadcrumb-item');
+    const breadcrumbs = detailContainer.querySelectorAll('habitat-header-breadcrumb-item');
     for (let crumb of breadcrumbs) {
         const text = crumb.textContent.trim();
         // Must have comma, not be a navigation item
@@ -30,19 +33,17 @@ function getStudentDataFromRez360() {
         }
     }
     
-    // Get student number
-    const allText = document.body.innerText;
-    const studentNumMatch = allText.match(/Student Number\s+(\d{8})/);
+    // Get student number from within the container
+    const containerText = detailContainer.innerText;
+    const studentNumMatch = containerText.match(/Student Number\s+(\d{8})/);
     if (studentNumMatch) {
         data.studentNumber = studentNumMatch[1];
     }
     
-    // FIXED: Get room/bed space - now handles complex formats like V1/REV/MKV-TNHSE-123a
-    // Pattern: Matches any combination of letters, numbers, slashes, and dashes ending in optional letter
-    const roomMatch = allText.match(/Room\s+([\w\/\-]+\d+[a-z]?)/i);
+    // FIXED: Get room/bed space from within the container
+    const roomMatch = containerText.match(/Room\s+([\w\/\-]+\d+[a-z]?)/i);
     if (roomMatch) {
         let roomString = roomMatch[1];
-        // If there's a slash, take the last segment (most specific bed space)
         if (roomString.includes('/')) {
             const parts = roomString.split('/');
             roomString = parts[parts.length - 1];
@@ -53,17 +54,27 @@ function getStudentDataFromRez360() {
     return Object.keys(data).length > 0 ? data : null;
 }
 
-// Get initials from full name
+// Get initials from full name in format: FirstInitials.LastInitials
 function getInitials(fullName) {
     if (fullName.includes(',')) {
         const parts = fullName.split(',').map(p => p.trim());
         const lastName = parts[0];
         const firstName = parts[1] || '';
-        const firstInitials = firstName.split(' ').map(n => n[0]).join('');
-        const lastInitial = lastName[0];
-        return (firstInitials + lastInitial).toUpperCase();
+        
+        // Get all initials from first name(s) and all initials from last name(s)
+        const firstInitials = firstName.split(' ').filter(n => n.length > 0).map(n => n[0]).join('');
+        const lastInitials = lastName.split(' ').filter(n => n.length > 0).map(n => n[0]).join('');
+        
+        return `${firstInitials}.${lastInitials}`.toUpperCase();
     }
+    
+    // Fallback for names without commas
     const nameParts = fullName.split(' ').filter(p => p.length > 0);
+    if (nameParts.length > 1) {
+        const last = nameParts.pop();
+        const firsts = nameParts.map(n => n[0]).join('');
+        return `${firsts}.${last[0]}`.toUpperCase();
+    }
     return nameParts.map(part => part[0]).join('').toUpperCase();
 }
 
@@ -83,7 +94,9 @@ function getCurrentTime() {
 function generateLogEntry(packageCount = 1) {
     try {
         const staffName = getStaffName();
-        const staffInitials = staffName ? getInitials(staffName) : 'XX';
+        // Force the dot format for staff initials specifically
+        const staffInitialsRaw = staffName ? getInitials(staffName) : 'X.X';
+        const staffInitials = staffInitialsRaw.includes('.') ? staffInitialsRaw : staffInitialsRaw.split('').join('.');
         
         const studentData = getStudentDataFromRez360();
         
@@ -179,7 +192,7 @@ function findParcelCountElement() {
 // FIXED: Create buttons for multiple packages
 function createLogButtons() {
     // Find all Issue buttons
-    const issueButtons = Array.from(document.querySelectorAll('button, input[type="button"], a.button, a[class*="button"]')).filter(btn => {
+    const issueButtons = Array.from(document.querySelectorAll('button, input[type=\"button\"], a.button, a[class*=\"button\"]')).filter(btn => {
         const text = btn.textContent.toLowerCase();
         return text.includes('issue') && !text.includes('reissue');
     });
@@ -191,7 +204,7 @@ function createLogButtons() {
     
     const packageCount = issueButtons.length;
     
-    // EDGE CASE 2: If 2+ Issue buttons, add a master button next to "X Parcels" text
+    // EDGE CASE 2: If 2+ Issue buttons, add a master button next to \"X Parcels\" text
     if (packageCount >= 2) {
         const parcelCountElement = findParcelCountElement();
         
@@ -230,12 +243,12 @@ function createLogButtons() {
                 }
             });
             
-            // Insert button right after the "X Parcels" span
+            // Insert button right after the \"X Parcels\" span
             parcelCountElement.parentNode.insertBefore(masterButton, parcelCountElement.nextSibling);
         }
     }
     
-    // Add individual "Copy Log" buttons next to each Issue button
+    // Add individual \"Copy Log\" buttons next to each Issue button
     issueButtons.forEach((issueBtn, index) => {
         const buttonId = `package-log-btn-${index}`;
         
@@ -300,13 +313,13 @@ function showPreview(text, data) {
         animation: slideIn 0.3s ease;
     `;
     
-    const staffInfo = data.staffName ? `<div style="font-size: 11px; color: #999; margin-bottom: 4px;">Logged by: ${data.staffName}</div>` : '';
-    const debugInfo = `<div style="font-size: 10px; color: #ccc; margin-top: 8px;">Student: ${data.fullName} | Room: ${data.roomSpace}</div>`;
+    const staffInfo = data.staffName ? `<div style=\"font-size: 11px; color: #999; margin-bottom: 4px;\">Logged by: ${data.staffName}</div>` : '';
+    const debugInfo = `<div style=\"font-size: 10px; color: #ccc; margin-top: 8px;\">Student: ${data.fullName} | Room: ${data.roomSpace}</div>`;
     
     preview.innerHTML = `
-        <div style="font-weight: bold; margin-bottom: 8px; color: #667eea;">Copied to Clipboard:</div>
+        <div style=\"font-weight: bold; margin-bottom: 8px; color: #667eea;\">Copied to Clipboard:</div>
         ${staffInfo}
-        <div style="background: #f7f7f7; padding: 8px; border-radius: 4px; word-break: break-all;">${text}</div>
+        <div style=\"background: #f7f7f7; padding: 8px; border-radius: 4px; word-break: break-all;\">${text}</div>
         ${debugInfo}
     `;
     
