@@ -26,7 +26,7 @@ function getStudentDataFromRez360() {
     const breadcrumbs = detailContainer.querySelectorAll('habitat-header-breadcrumb-item');
     for (let crumb of breadcrumbs) {
         const text = crumb.textContent.trim();
-        if (text.includes(',') && !text.includes('Dashboard') && !text.includes('Desk')) {
+        if (text.includes(',') && !text.includes('Dashboard') && !text.includes('Desk') && !text.includes('Front')) {
             data.fullName = text;
             break;
         }
@@ -38,35 +38,33 @@ function getStudentDataFromRez360() {
         data.studentNumber = snoMatch[1];
     }
 
-    // 3. FIXED: Specific Room/Bedspace Extraction
-    // Get all potential label-value pairs
-    const allElements = Array.from(detailContainer.querySelectorAll('div, td, .starrez-label, .starrez-list-item-label'));
+    // 3. FIXED: Find the main Booking section (e.g., Winter 2026 Reserved)
+    // We look for the section that contains the room details, skipping tables/reports
+    const sections = Array.from(detailContainer.querySelectorAll('div, section, .ui-widget-content'));
     
-    // Search backwards (bottom-up) to find the primary "Room" field in the Rez 360 panel
-    for (let i = allElements.length - 1; i >= 0; i--) {
-        const text = allElements[i].innerText.trim();
-        
-        if (text === 'Room') {
-            // Check the next few elements for the actual code (Building-Room)
-            // We look ahead up to 3 elements to skip over building names like "Claudette Millar Hall"
-            for (let j = 1; j <= 3; j++) {
-                if (allElements[i + j]) {
-                    const val = allElements[i + j].innerText.trim();
-                    // Pattern: Must contain a dash and at least one number (e.g., CMH-05213b)
-                    if (val.includes('-') && /\d/.test(val)) {
-                        // If it's a double entry (Room/Bedspace), take the last part
-                        data.roomSpace = val.includes('/') ? val.split('/').pop().trim() : val;
-                        return Object.keys(data).length > 0 ? data : null;
-                    }
-                }
-            }
+    // We look for the specific "Room" label that is followed by a building code
+    // We prioritize sections that look like the main profile header
+    const mainInfoText = detailContainer.innerText;
+    
+    // Regex targets: Room [Label] -> Location [Text] -> Building-Code [Value]
+    // Specifically looking for the pattern where Room code comes after the Location Name
+    const roomRegex = /Room\s+[\w\s\/]+\s+([A-Z0-9]{2,4}-[\d\w\/]+)/i;
+    const roomMatch = mainInfoText.match(roomRegex);
+
+    if (roomMatch) {
+        let roomString = roomMatch[1];
+        // If there's a slash (e.g. CMH-05213/CMH-05213b), take the last part (the bedspace)
+        if (roomString.includes('/')) {
+            const parts = roomString.split('/');
+            roomString = parts[parts.length - 1];
         }
+        data.roomSpace = roomString.trim();
     }
 
-    // Fallback: Strict Regex for Building-Room code if the label search fails
+    // Secondary Fallback: If the regex above misses, scan for the Building-Room code directly
     if (!data.roomSpace) {
-        const fallbackMatch = detailContainer.innerText.match(/\b([A-Z0-9]{2,4}-[\d\w]+[a-z]?)\b/);
-        if (fallbackMatch) data.roomSpace = fallbackMatch[1];
+        const strictMatch = mainInfoText.match(/\b([A-Z]{2,4}-\d{5}[a-z]?)\b/);
+        if (strictMatch) data.roomSpace = strictMatch[1];
     }
     
     return Object.keys(data).length > 0 ? data : null;
@@ -78,10 +76,13 @@ function getInitials(fullName) {
         const parts = fullName.split(',').map(p => p.trim());
         const lastName = parts[0];
         const firstName = parts[1] || '';
+        
         const firstInitials = firstName.split(' ').filter(n => n.length > 0).map(n => n[0]).join('');
         const lastInitials = lastName.split(' ').filter(n => n.length > 0).map(n => n[0]).join('');
+        
         return `${firstInitials}.${lastInitials}`.toUpperCase();
     }
+    
     const nameParts = fullName.split(' ').filter(p => p.length > 0);
     if (nameParts.length > 1) {
         const last = nameParts.pop();
@@ -107,119 +108,258 @@ function getCurrentTime() {
 function generateLogEntry(packageCount = 1) {
     try {
         const staffName = getStaffName();
-        const staffInitials = staffName ? getInitials(staffName).replace('.', '') : 'XX';
+        const staffInitialsRaw = staffName ? getInitials(staffName) : 'X.X';
+        const staffInitials = staffInitialsRaw.replace('.', ''); // Plain AB format
+        
         const studentData = getStudentDataFromRez360();
         
-        if (!studentData || !studentData.fullName) return { success: false, error: 'Could not find student name' };
-        if (!studentData.studentNumber) return { success: false, error: 'Could not find student number' };
-        if (!studentData.roomSpace) return { success: false, error: 'Could not find room/bed space' };
+        if (!studentData || !studentData.fullName) {
+            return { success: false, error: 'Could not find student name' };
+        }
+        
+        if (!studentData.studentNumber) {
+            return { success: false, error: 'Could not find student number' };
+        }
+        
+        if (!studentData.roomSpace) {
+            return { success: false, error: 'Could not find room/bed space' };
+        }
         
         const initials = getInitials(studentData.fullName);
         const time = getCurrentTime();
+        
         const logEntry = `${initials} (${studentData.studentNumber}) ${studentData.roomSpace} ${packageCount} pkg${packageCount > 1 ? 's' : ''} @ ${time} - ${staffInitials}`;
         
         return {
             success: true,
             logEntry: logEntry,
-            data: { initials, studentNumber: studentData.studentNumber, roomSpace: studentData.roomSpace, packageCount, time, fullName: studentData.fullName, staffInitials, staffName }
+            data: {
+                initials,
+                studentNumber: studentData.studentNumber,
+                roomSpace: studentData.roomSpace,
+                packageCount,
+                time,
+                fullName: studentData.fullName,
+                staffInitials,
+                staffName
+            }
         };
     } catch (error) {
         return { success: false, error: error.message };
     }
 }
 
+// Copy to clipboard
 async function copyToClipboard(text) {
-    try { await navigator.clipboard.writeText(text); return true; } catch (err) { return false; }
+    try {
+        await navigator.clipboard.writeText(text);
+        return true;
+    } catch (err) {
+        return false;
+    }
 }
 
+// Create button helper
 function createStyledButton(text, gradient = 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)') {
     const button = document.createElement('button');
     button.textContent = text;
-    button.style.cssText = `margin-left: 10px; padding: 8px 16px; background: ${gradient}; color: white; border: none; border-radius: 6px; cursor: pointer; font-weight: 600; font-size: 14px; box-shadow: 0 2px 8px rgba(102, 126, 234, 0.3); transition: all 0.2s ease;`;
-    button.addEventListener('mouseenter', () => { button.style.transform = 'translateY(-2px)'; button.style.boxShadow = '0 4px 12px rgba(102, 126, 234, 0.4)'; });
-    button.addEventListener('mouseleave', () => { button.style.transform = 'translateY(0)'; button.style.boxShadow = '0 2px 8px rgba(102, 126, 234, 0.3)'; });
+    button.style.cssText = `
+        margin-left: 10px;
+        padding: 8px 16px;
+        background: ${gradient};
+        color: white;
+        border: none;
+        border-radius: 6px;
+        cursor: pointer;
+        font-weight: 600;
+        font-size: 14px;
+        box-shadow: 0 2px 8px rgba(102, 126, 234, 0.3);
+        transition: all 0.2s ease;
+    `;
+    
+    button.addEventListener('mouseenter', () => {
+        button.style.transform = 'translateY(-2px)';
+        button.style.boxShadow = '0 4px 12px rgba(102, 126, 234, 0.4)';
+    });
+    
+    button.addEventListener('mouseleave', () => {
+        button.style.transform = 'translateY(0)';
+        button.style.boxShadow = '0 2px 8px rgba(102, 126, 234, 0.3)';
+    });
+    
     return button;
 }
 
+// Find the "X Parcels" span element
 function findParcelCountElement() {
     const spans = Array.from(document.querySelectorAll('span'));
     for (let span of spans) {
         const text = span.textContent.trim();
-        if (/^\d+\s+Parcel[s]?$/i.test(text) && span.children.length === 0) return span;
+        if (/^\d+\s+Parcel[s]?$/i.test(text) && span.children.length === 0) {
+            return span;
+        }
     }
     return null;
 }
 
+// FIXED: Create buttons for multiple packages
 function createLogButtons() {
     const issueButtons = Array.from(document.querySelectorAll('button, input[type=\"button\"], a.button, a[class*=\"button\"]')).filter(btn => {
         const text = btn.textContent.toLowerCase();
         return text.includes('issue') && !text.includes('reissue');
     });
-    if (issueButtons.length === 0) return;
+    
+    if (issueButtons.length === 0) {
+        return;
+    }
+    
     const packageCount = issueButtons.length;
+    
     if (packageCount >= 2) {
         const parcelCountElement = findParcelCountElement();
+        
         if (parcelCountElement && !document.getElementById('package-log-master-btn')) {
-            const masterButton = createStyledButton(`Copy ${packageCount} pkgs`, 'linear-gradient(135deg, #f093fb 0%, #f5576c 100%)');
+            const masterButton = createStyledButton(
+                `Copy ${packageCount} pkgs`,
+                'linear-gradient(135deg, #f093fb 0%, #f5576c 100%)'
+            );
             masterButton.id = 'package-log-master-btn';
+            masterButton.style.marginLeft = '15px';
+            masterButton.style.verticalAlign = 'middle';
+            
             masterButton.addEventListener('click', async (e) => {
-                e.preventDefault(); e.stopPropagation();
+                e.preventDefault();
+                e.stopPropagation();
+                
                 const result = generateLogEntry(packageCount);
+                
                 if (result.success) {
                     const copied = await copyToClipboard(result.logEntry);
+                    
                     if (copied) {
                         const originalText = masterButton.textContent;
                         masterButton.textContent = 'Copied!';
                         masterButton.style.background = 'linear-gradient(135deg, #11998e 0%, #38ef7d 100%)';
+                        
                         showPreview(result.logEntry, result.data);
-                        setTimeout(() => { masterButton.textContent = originalText; masterButton.style.background = 'linear-gradient(135deg, #f093fb 0%, #f5576c 100%)'; }, 2000);
+                        
+                        setTimeout(() => {
+                            masterButton.textContent = originalText;
+                            masterButton.style.background = 'linear-gradient(135deg, #f093fb 0%, #f5576c 100%)';
+                        }, 2000);
                     }
-                } else { alert('Error: ' + result.error); }
+                } else {
+                    alert('Error: ' + result.error);
+                }
             });
+            
             parcelCountElement.parentNode.insertBefore(masterButton, parcelCountElement.nextSibling);
         }
     }
+    
     issueButtons.forEach((issueBtn, index) => {
         const buttonId = `package-log-btn-${index}`;
         if (document.getElementById(buttonId)) return;
+        
         const logButton = createStyledButton('Copy Log');
         logButton.id = buttonId;
+        
         logButton.addEventListener('click', async (e) => {
-            e.preventDefault(); e.stopPropagation();
+            e.preventDefault();
+            e.stopPropagation();
+            
             const result = generateLogEntry(1);
+            
             if (result.success) {
                 const copied = await copyToClipboard(result.logEntry);
+                
                 if (copied) {
                     const originalText = logButton.textContent;
                     logButton.textContent = 'Copied!';
                     logButton.style.background = 'linear-gradient(135deg, #11998e 0%, #38ef7d 100%)';
+                    
                     showPreview(result.logEntry, result.data);
-                    setTimeout(() => { logButton.textContent = originalText; logButton.style.background = 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)'; }, 2000);
+                    
+                    setTimeout(() => {
+                        logButton.textContent = originalText;
+                        logButton.style.background = 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)';
+                    }, 2000);
                 }
-            } else { alert('Error: ' + result.error); }
+            } else {
+                alert('Error: ' + result.error);
+            }
         });
+        
         issueBtn.parentNode.insertBefore(logButton, issueBtn.nextSibling);
     });
 }
 
+// Show preview
 function showPreview(text, data) {
     const existing = document.getElementById('log-preview-popup');
     if (existing) existing.remove();
+    
     const preview = document.createElement('div');
     preview.id = 'log-preview-popup';
-    preview.style.cssText = `position: fixed; top: 20px; right: 20px; background: white; border: 2px solid #667eea; border-radius: 8px; padding: 16px; box-shadow: 0 4px 20px rgba(0,0,0,0.15); z-index: 10000; max-width: 400px; font-family: monospace; font-size: 13px; animation: slideIn 0.3s ease;`;
+    preview.style.cssText = `
+        position: fixed;
+        top: 20px;
+        right: 20px;
+        background: white;
+        border: 2px solid #667eea;
+        border-radius: 8px;
+        padding: 16px;
+        box-shadow: 0 4px 20px rgba(0,0,0,0.15);
+        z-index: 10000;
+        max-width: 400px;
+        font-family: monospace;
+        font-size: 13px;
+        animation: slideIn 0.3s ease;
+    `;
+    
     const staffInfo = data.staffName ? `<div style=\"font-size: 11px; color: #999; margin-bottom: 4px;\">Logged by: ${data.staffName}</div>` : '';
-    preview.innerHTML = `<div style=\"font-weight: bold; margin-bottom: 8px; color: #667eea;\">Copied to Clipboard:</div>${staffInfo}<div style=\"background: #f7f7f7; padding: 8px; border-radius: 4px; word-break: break-all;\">${text}</div><div style=\"font-size: 10px; color: #ccc; margin-top: 8px;\">Student: ${data.fullName} | Room: ${data.roomSpace}</div>`;
+    const debugInfo = `<div style=\"font-size: 10px; color: #ccc; margin-top: 8px;\">Student: ${data.fullName} | Room: ${data.roomSpace}</div>`;
+    
+    preview.innerHTML = `
+        <div style=\"font-weight: bold; margin-bottom: 8px; color: #667eea;\">Copied to Clipboard:</div>
+        ${staffInfo}
+        <div style=\"background: #f7f7f7; padding: 8px; border-radius: 4px; word-break: break-all;\">${text}</div>
+        ${debugInfo}
+    `;
+    
     document.body.appendChild(preview);
-    setTimeout(() => { preview.style.animation = 'slideOut 0.3s ease'; setTimeout(() => preview.remove(), 300); }, 4000);
+    
+    setTimeout(() => {
+        preview.style.animation = 'slideOut 0.3s ease';
+        setTimeout(() => preview.remove(), 300);
+    }, 4000);
 }
 
+// Add styles
 const style = document.createElement('style');
-style.textContent = `@keyframes slideIn { from { transform: translateX(400px); opacity: 0; } to { transform: translateX(0); opacity: 1; } } @keyframes slideOut { from { transform: translateX(0); opacity: 1; } to { transform: translateX(400px); opacity: 0; } }`;
+style.textContent = `
+    @keyframes slideIn {
+        from { transform: translateX(400px); opacity: 0; }
+        to { transform: translateX(0); opacity: 1; }
+    }
+    @keyframes slideOut {
+        from { transform: translateX(0); opacity: 1; }
+        to { transform: translateX(400px); opacity: 0; }
+    }
+`;
 document.head.appendChild(style);
 
-function initialize() { createLogButtons(); }
-if (document.readyState === 'loading') { document.addEventListener('DOMContentLoaded', initialize); } else { initialize(); }
+// Initialize
+function initialize() {
+    createLogButtons();
+}
+
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', initialize);
+} else {
+    initialize();
+}
+
 const observer = new MutationObserver(() => initialize());
 observer.observe(document.body, { childList: true, subtree: true });
 
