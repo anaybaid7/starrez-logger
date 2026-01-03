@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "StarRez Package Logger",
   "version": "1.0",
-  "description": "Auto-generates package log entries for CLV Front Desk",
+  "description": "Auto-generates package log entries for Front Desks (UWP, CLV, MKV, V1, REV, MHR) at the University of Waterloo",
   "permissions": [
     "clipboardWrite"
   ],
