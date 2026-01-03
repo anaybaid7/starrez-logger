@@ -1,4 +1,36 @@
-// StarRez Package Logger - Content Script
+// StarRez Package Logger - Content Script (FIXED)
+
+// ========== PAGE CONTEXT DETECTION (NEW) ==========
+
+// Check if we're on a Parcel/Package page
+function isParcelPage() {
+    const url = window.location.href.toLowerCase();
+    // Check URL for parcel-related keywords
+    return url.includes('parcel') || url.includes('package');
+}
+
+// Multi-signal validation for parcel context
+function isParcelContextPresent() {
+    const bodyText = document.body.innerText;
+    
+    // Require at least 2 of these signals
+    const signals = [
+        bodyText.includes('Parcel'),
+        bodyText.includes('Student Number'),
+        bodyText.includes('Room') || bodyText.includes('Bed Space'),
+        document.querySelector('habitat-header-breadcrumb-item') !== null
+    ];
+    
+    const signalCount = signals.filter(s => s).length;
+    return signalCount >= 2;
+}
+
+// Master context check
+function shouldInitialize() {
+    return isParcelPage() && isParcelContextPresent();
+}
+
+// ========== ORIGINAL FUNCTIONS ==========
 
 // Extract staff name from Pendo script
 function getStaffName() {
@@ -37,8 +69,7 @@ function getStudentDataFromRez360() {
         data.studentNumber = studentNumMatch[1];
     }
     
-    // FIXED: Get room/bed space - now handles complex formats like V1/REV/MKV-TNHSE-123a
-    // Pattern: Matches any combination of letters, numbers, slashes, and dashes ending in optional letter
+    // Get room/bed space - handles complex formats like V1/REV/MKV-TNHSE-123a
     const roomMatch = allText.match(/Room\s+([\w\/\-]+\d+[a-z]?)/i);
     if (roomMatch) {
         let roomString = roomMatch[1];
@@ -59,10 +90,20 @@ function getInitials(fullName) {
         const parts = fullName.split(',').map(p => p.trim());
         const lastName = parts[0];
         const firstName = parts[1] || '';
-        const firstInitials = firstName.split(' ').map(n => n[0]).join('');
-        const lastInitial = lastName[0];
-        return (firstInitials + lastInitial).toUpperCase();
+        
+        // Get all initials from first name (e.g., "John Sales" -> "JS")
+        const firstNameParts = firstName.split(' ').filter(p => p.length > 0);
+        const firstInitials = firstNameParts.map(n => n[0]).join('');
+        
+        // Get all initials from last name (e.g., "Peter Doe" -> "PD")
+        const lastNameParts = lastName.split(' ').filter(p => p.length > 0);
+        const lastInitials = lastNameParts.map(n => n[0]).join('');
+        
+        // Format: FirstInitials.LastInitials (e.g., "JSM.PD")
+        return (firstInitials + '.' + lastInitials).toUpperCase();
     }
+    
+    // Fallback for names without comma
     const nameParts = fullName.split(' ').filter(p => p.length > 0);
     return nameParts.map(part => part[0]).join('').toUpperCase();
 }
@@ -176,7 +217,7 @@ function findParcelCountElement() {
     return null;
 }
 
-// FIXED: Create buttons for multiple packages
+// Create buttons for multiple packages
 function createLogButtons() {
     // Find all Issue buttons
     const issueButtons = Array.from(document.querySelectorAll('button, input[type="button"], a.button, a[class*="button"]')).filter(btn => {
@@ -185,13 +226,12 @@ function createLogButtons() {
     });
     
     if (issueButtons.length === 0) {
-        console.log('No Issue buttons found');
         return;
     }
     
     const packageCount = issueButtons.length;
     
-    // EDGE CASE 2: If 2+ Issue buttons, add a master button next to "X Parcels" text
+    // If 2+ Issue buttons, add a master button next to "X Parcels" text
     if (packageCount >= 2) {
         const parcelCountElement = findParcelCountElement();
         
@@ -230,7 +270,6 @@ function createLogButtons() {
                 }
             });
             
-            // Insert button right after the "X Parcels" span
             parcelCountElement.parentNode.insertBefore(masterButton, parcelCountElement.nextSibling);
         }
     }
@@ -239,7 +278,6 @@ function createLogButtons() {
     issueButtons.forEach((issueBtn, index) => {
         const buttonId = `package-log-btn-${index}`;
         
-        // Check if button already exists
         if (document.getElementById(buttonId)) {
             return;
         }
@@ -251,7 +289,7 @@ function createLogButtons() {
             e.preventDefault();
             e.stopPropagation();
             
-            const result = generateLogEntry(1); // Always 1 pkg for individual buttons
+            const result = generateLogEntry(1);
             
             if (result.success) {
                 const copied = await copyToClipboard(result.logEntry);
@@ -332,8 +370,14 @@ style.textContent = `
 `;
 document.head.appendChild(style);
 
-// Initialize
+// ========== INITIALIZE WITH GUARDS (FIXED) ==========
+
 function initialize() {
+    // CRITICAL: Only run if we're on a parcel page
+    if (!shouldInitialize()) {
+        return;
+    }
+    
     createLogButtons();
 }
 
@@ -343,7 +387,25 @@ if (document.readyState === 'loading') {
     initialize();
 }
 
-const observer = new MutationObserver(() => initialize());
+// FIXED: Throttled observer that respects page context
+let lastRun = 0;
+const observer = new MutationObserver(() => {
+    const now = Date.now();
+    
+    // Throttle to max once per 500ms
+    if (now - lastRun < 500) {
+        return;
+    }
+    
+    // Only run if we're on a parcel page
+    if (!shouldInitialize()) {
+        return;
+    }
+    
+    lastRun = now;
+    initialize();
+});
+
 observer.observe(document.body, { childList: true, subtree: true });
 
-console.log('StarRez Package Logger loaded!');
+console.log('StarRez Package Logger loaded (with page context guards)');
