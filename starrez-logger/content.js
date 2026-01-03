@@ -1,36 +1,30 @@
-// StarRez Package Logger - Content Script (FIXED)
+// StarRez Package Logger - Content Script
 
 // ========== PAGE CONTEXT DETECTION ==========
 
-// Check if we're on a Parcel/Package page
 function isParcelPage() {
     const url = window.location.href.toLowerCase();
     return url.includes('parcel') || url.includes('package');
 }
 
-// Multi-signal validation for parcel context
 function isParcelContextPresent() {
     const bodyText = document.body.innerText;
-    
     const signals = [
         bodyText.includes('Parcel'),
         bodyText.includes('Student Number'),
         bodyText.includes('Room') || bodyText.includes('Bed Space'),
         document.querySelector('habitat-header-breadcrumb-item') !== null
     ];
-    
     const signalCount = signals.filter(s => s).length;
     return signalCount >= 2;
 }
 
-// Master context check
 function shouldInitialize() {
     return isParcelPage() && isParcelContextPresent();
 }
 
 // ========== CORE FUNCTIONS ==========
 
-// Extract staff name from Pendo script
 function getStaffName() {
     const scripts = document.querySelectorAll('script');
     for (let script of scripts) {
@@ -45,11 +39,9 @@ function getStaffName() {
     return null;
 }
 
-// Extract student data from Rez 360 detail view
 function getStudentDataFromRez360() {
     const data = {};
     
-    // Get student name from breadcrumb
     const breadcrumbs = document.querySelectorAll('habitat-header-breadcrumb-item');
     for (let crumb of breadcrumbs) {
         const text = crumb.textContent.trim();
@@ -59,20 +51,19 @@ function getStudentDataFromRez360() {
         }
     }
     
-    // Get student number
     const allText = document.body.innerText;
     const studentNumMatch = allText.match(/Student Number\s+(\d{8})/);
     if (studentNumMatch) {
         data.studentNumber = studentNumMatch[1];
     }
     
-    // Get room/bed space - look for Room followed by space/newline and code
-    const roomMatch = allText.match(/Room[:\s]+([A-Z0-9\-\/]+\d+[a-z]?)/i);
+    // FIXED: Take FIRST segment of room (BH-0705a from BH-0705a/BH-0705a-2)
+    const roomMatch = allText.match(/Room\s+([\w\/\-]+\d+[a-z]?)/i);
     if (roomMatch) {
         let roomString = roomMatch[1];
-        // If slash, take first segment (e.g., BH-0705a from BH-0705a/BH-0705a-2)
         if (roomString.includes('/')) {
-            roomString = roomString.split('/')[0];
+            const parts = roomString.split('/');
+            roomString = parts[0];
         }
         data.roomSpace = roomString;
     }
@@ -80,29 +71,25 @@ function getStudentDataFromRez360() {
     return Object.keys(data).length > 0 ? data : null;
 }
 
-// Get initials from full name
+// FIXED: Proper multi-word initials (JS.D, JSM.PD, etc.)
 function getInitials(fullName) {
     if (fullName.includes(',')) {
         const parts = fullName.split(',').map(p => p.trim());
         const lastName = parts[0];
         const firstName = parts[1] || '';
         
-        // Get all initials from first name
         const firstNameParts = firstName.split(' ').filter(p => p.length > 0);
         const firstInitials = firstNameParts.map(n => n[0]).join('');
         
-        // Get all initials from last name
         const lastNameParts = lastName.split(' ').filter(p => p.length > 0);
         const lastInitials = lastNameParts.map(n => n[0]).join('');
         
         return (firstInitials + '.' + lastInitials).toUpperCase();
     }
-    
     const nameParts = fullName.split(' ').filter(p => p.length > 0);
     return nameParts.map(part => part[0]).join('').toUpperCase();
 }
 
-// Format current time
 function getCurrentTime() {
     const now = new Date();
     let hours = now.getHours();
@@ -114,7 +101,6 @@ function getCurrentTime() {
     return `${hours}:${minutesStr} ${ampm}`;
 }
 
-// Generate log entry
 function generateLogEntry(packageCount = 1) {
     try {
         const staffName = getStaffName();
@@ -137,6 +123,7 @@ function generateLogEntry(packageCount = 1) {
         const initials = getInitials(studentData.fullName);
         const time = getCurrentTime();
         
+        // FIXED: Added comma after room
         const logEntry = `${initials} (${studentData.studentNumber}) ${studentData.roomSpace}, ${packageCount} pkg${packageCount > 1 ? 's' : ''} @ ${time} - ${staffInitials}`;
         
         return {
@@ -158,7 +145,6 @@ function generateLogEntry(packageCount = 1) {
     }
 }
 
-// Copy to clipboard
 async function copyToClipboard(text) {
     try {
         await navigator.clipboard.writeText(text);
@@ -168,7 +154,6 @@ async function copyToClipboard(text) {
     }
 }
 
-// Create styled button
 function createStyledButton(text, gradient = 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)') {
     const button = document.createElement('button');
     button.textContent = text;
@@ -199,7 +184,6 @@ function createStyledButton(text, gradient = 'linear-gradient(135deg, #667eea 0%
     return button;
 }
 
-// Find parcel count element
 function findParcelCountElement() {
     const spans = Array.from(document.querySelectorAll('span'));
     for (let span of spans) {
@@ -211,7 +195,6 @@ function findParcelCountElement() {
     return null;
 }
 
-// Create log buttons
 function createLogButtons() {
     const issueButtons = Array.from(document.querySelectorAll('button, input[type="button"], a.button, a[class*="button"]')).filter(btn => {
         const text = btn.textContent.toLowerCase();
@@ -219,12 +202,14 @@ function createLogButtons() {
     });
     
     if (issueButtons.length === 0) {
+        console.log('No Issue buttons found');
         return;
     }
     
+    console.log(`Found ${issueButtons.length} Issue buttons`);
+    
     const packageCount = issueButtons.length;
     
-    // Master button for 2+ packages
     if (packageCount >= 2) {
         const parcelCountElement = findParcelCountElement();
         
@@ -264,10 +249,10 @@ function createLogButtons() {
             });
             
             parcelCountElement.parentNode.insertBefore(masterButton, parcelCountElement.nextSibling);
+            console.log('Master button added');
         }
     }
     
-    // Individual buttons
     issueButtons.forEach((issueBtn, index) => {
         const buttonId = `package-log-btn-${index}`;
         
@@ -306,9 +291,10 @@ function createLogButtons() {
         
         issueBtn.parentNode.insertBefore(logButton, issueBtn.nextSibling);
     });
+    
+    console.log(`Added ${issueButtons.length} Copy Log buttons`);
 }
 
-// Show preview popup
 function showPreview(text, data) {
     const existing = document.getElementById('log-preview-popup');
     if (existing) existing.remove();
@@ -349,7 +335,6 @@ function showPreview(text, data) {
     }, 4000);
 }
 
-// Add CSS animations
 const style = document.createElement('style');
 style.textContent = `
     @keyframes slideIn {
@@ -363,13 +348,15 @@ style.textContent = `
 `;
 document.head.appendChild(style);
 
-// ========== INITIALIZATION ==========
+// ========== INITIALIZE ==========
 
 function initialize() {
     if (!shouldInitialize()) {
+        console.log('Not a parcel page, skipping initialization');
         return;
     }
     
+    console.log('Parcel page detected, creating buttons...');
     createLogButtons();
 }
 
@@ -379,7 +366,6 @@ if (document.readyState === 'loading') {
     initialize();
 }
 
-// Throttled observer
 let lastRun = 0;
 const observer = new MutationObserver(() => {
     const now = Date.now();
