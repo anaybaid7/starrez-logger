@@ -26,7 +26,7 @@ function getStudentDataFromRez360() {
     const breadcrumbs = detailContainer.querySelectorAll('habitat-header-breadcrumb-item');
     for (let crumb of breadcrumbs) {
         const text = crumb.textContent.trim();
-        // Must have comma, not be a navigation item
+        // Ensures that this must have a comma, and should not be a navigation item 
         if (text.includes(',') && !text.includes('Dashboard') && !text.includes('Desk') && !text.includes('Front')) {
             data.fullName = text;
             break;
