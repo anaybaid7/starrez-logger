@@ -40,13 +40,13 @@ function getStudentDataFromRez360() {
         data.studentNumber = studentNumMatch[1];
     }
     
-    // FIXED: Get room/bed space from within the container
-    const roomMatch = containerText.match(/Room\s+([\w\/\-]+\d+[a-z]?)/i);
+    // FIXED: Now it gets the room/bed space from within the container properly, taking the most recent/accurate bedspace after 
+    const roomMatch = containerText.match(/Room\s+([\w\/\-]+\d+[a-z]?)/i); // formatted regex to reliably source the bedspace
     if (roomMatch) {
         let roomString = roomMatch[1];
         if (roomString.includes('/')) {
-            const parts = roomString.split('/');
-            roomString = parts[parts.length - 1];
+            const parts = roomString.split('/'); // splitting regex to take the required bedspace
+            roomString = parts[parts.length - 1]; // sourcing 
         }
         data.roomSpace = roomString;
     }
