@@ -1,6 +1,32 @@
-// StarRez Package Logger - Content Script
+// ============================================================================
+// StarRez Package Logger - PRODUCTION READY v2.0
+// Supports: CLV, MKV, REV, UWP, V1
+// ============================================================================
 
-// Extract staff name from Pendo script
+const CONFIG = {
+    DEBUG: true, // Set to false in production
+    RESIDENCE_PATTERNS: [
+        /([A-Z]+[NS]?)-(\d+[a-z])/i,  // CLVN-349b, CLVS-039a, MKVA-123a
+        /([A-Z]+)-(\d+[a-z])/i,        // REV-456b, UWP-789c, V1-012d
+    ]
+};
+
+// ============================================================================
+// UTILITY FUNCTIONS
+// ============================================================================
+
+function log(...args) {
+    if (CONFIG.DEBUG) console.log('[PKG-LOGGER]', ...args);
+}
+
+function error(...args) {
+    console.error('[PKG-LOGGER ERROR]', ...args);
+}
+
+// ============================================================================
+// STAFF NAME EXTRACTION
+// ============================================================================
+
 function getStaffName() {
     const scripts = document.querySelectorAll('script');
     for (let script of scripts) {
@@ -8,77 +34,175 @@ function getStaffName() {
         if (scriptText.includes('pendo.initialize') && scriptText.includes('full_name')) {
             const fullNameMatch = scriptText.match(/full_name:\s*`([^`]+)`/);
             if (fullNameMatch && fullNameMatch[1]) {
+                log('Staff name found:', fullNameMatch[1]);
                 return fullNameMatch[1];
             }
         }
     }
+    error('Staff name not found in Pendo script');
     return null;
 }
 
-// Extract student data from Rez 360 detail view
-function getStudentDataFromRez360() {
-    const data = {};
-    
-    // Find the active detail container to ensure we don't pull data from other loaded profiles
-    const detailContainer = document.querySelector('.ui-tabs-panel:not(.ui-tabs-hide)') || document.body;
+// ============================================================================
+// INITIALS GENERATION - FIXED FOR "LastName, FirstName" FORMAT
+// ============================================================================
 
-    // Get student name from breadcrumb (most reliable)
-    const breadcrumbs = detailContainer.querySelectorAll('habitat-header-breadcrumb-item');
-    for (let crumb of breadcrumbs) {
-        const text = crumb.textContent.trim();
-        // Ensures that this must have a comma, and should not be a navigation item 
-        if (text.includes(',') && !text.includes('Dashboard') && !text.includes('Desk') && !text.includes('Front')) {
-            data.fullName = text;
-            break;
-        }
-    }
-    
-    // Get student number from within the container
-    const containerText = detailContainer.innerText;
-    const studentNumMatch = containerText.match(/Student Number\s+(\d{8})/);
-    if (studentNumMatch) {
-        data.studentNumber = studentNumMatch[1];
-    }
-    
-    // FIXED: Now it gets the room/bed space from within the container properly, taking the most recent/accurate bedspace after 
-    const roomMatch = containerText.match(/Room\s+([\w\/\-]+\d+[a-z]?)/i); // formatted regex to reliably source the bedspace
-    if (roomMatch) {
-        let roomString = roomMatch[1];
-        if (roomString.includes('/')) {
-            const parts = roomString.split('/'); // splitting regex to take the required bedspace
-            roomString = parts[parts.length - 1]; // sourcing 
-        }
-        data.roomSpace = roomString;
-    }
-    
-    return Object.keys(data).length > 0 ? data : null;
-}
-
-// Get initials from full name in format: FirstInitials.LastInitials
 function getInitials(fullName) {
+    if (!fullName) return 'X.X';
+    
+    // Handle "LastName, FirstName" format (StarRez standard)
     if (fullName.includes(',')) {
         const parts = fullName.split(',').map(p => p.trim());
         const lastName = parts[0];
         const firstName = parts[1] || '';
         
-        // Get all initials from first name(s) and all initials from last name(s)
-        const firstInitials = firstName.split(' ').filter(n => n.length > 0).map(n => n[0]).join('');
-        const lastInitials = lastName.split(' ').filter(n => n.length > 0).map(n => n[0]).join('');
+        log(`Parsing name: "${fullName}" -> Last: "${lastName}", First: "${firstName}"`);
         
-        return `${firstInitials}.${lastInitials}`.toUpperCase();
+        // Get first initials from first name(s)
+        const firstInitials = firstName
+            .split(/\s+/)
+            .filter(n => n.length > 0)
+            .map(n => n[0].toUpperCase())
+            .join('');
+        
+        // Get first initials from last name(s)
+        const lastInitials = lastName
+            .split(/\s+/)
+            .filter(n => n.length > 0)
+            .map(n => n[0].toUpperCase())
+            .join('');
+        
+        const result = `${firstInitials}.${lastInitials}`;
+        log(`Initials generated: ${result}`);
+        return result;
     }
     
-    // Fallback for names without commas
-    const nameParts = fullName.split(' ').filter(p => p.length > 0);
-    if (nameParts.length > 1) {
-        const last = nameParts.pop();
-        const firsts = nameParts.map(n => n[0]).join('');
-        return `${firsts}.${last[0]}`.toUpperCase();
+    // Fallback for non-standard format
+    const nameParts = fullName.split(/\s+/).filter(p => p.length > 0);
+    if (nameParts.length >= 2) {
+        const firstInitials = nameParts.slice(0, -1).map(n => n[0].toUpperCase()).join('');
+        const lastInitial = nameParts[nameParts.length - 1][0].toUpperCase();
+        return `${firstInitials}.${lastInitial}`;
     }
-    return nameParts.map(part => part[0]).join('').toUpperCase();
+    
+    return nameParts.map(p => p[0]).join('').toUpperCase() + '.X';
 }
 
-// Format current time
+// ============================================================================
+// STUDENT DATA EXTRACTION - ROBUST WITH MULTIPLE FALLBACKS
+// ============================================================================
+
+function getStudentDataFromRez360() {
+    const data = {};
+    
+    // Find the active detail container
+    const detailContainer = document.querySelector('.ui-tabs-panel:not(.ui-tabs-hide)') || document.body;
+    const containerText = detailContainer.innerText;
+    
+    log('Container text length:', containerText.length);
+    
+    // ========================================================================
+    // 1. EXTRACT STUDENT NAME (from breadcrumb - most reliable)
+    // ========================================================================
+    const breadcrumbs = detailContainer.querySelectorAll('habitat-header-breadcrumb-item');
+    for (let crumb of breadcrumbs) {
+        const text = crumb.textContent.trim();
+        // Must have comma, exclude navigation items
+        if (text.includes(',') && 
+            !text.includes('Dashboard') && 
+            !text.includes('Desk') && 
+            !text.includes('Front')) {
+            data.fullName = text;
+            log('✓ Name found in breadcrumb:', text);
+            break;
+        }
+    }
+    
+    if (!data.fullName) {
+        error('✗ Could not find student name in breadcrumbs');
+    }
+    
+    // ========================================================================
+    // 2. EXTRACT STUDENT NUMBER
+    // ========================================================================
+    const studentNumMatch = containerText.match(/Student Number\s+(\d{8})/);
+    if (studentNumMatch) {
+        data.studentNumber = studentNumMatch[1];
+        log('✓ Student number found:', data.studentNumber);
+    } else {
+        error('✗ Could not find student number');
+    }
+    
+    // ========================================================================
+    // 3. EXTRACT BEDSPACE - MULTIPLE METHODS WITH FALLBACKS
+    // ========================================================================
+    
+    // METHOD 1: Look for "Room\n\nBEDSPACE/BEDSPACE" pattern (most reliable for Rez 360 view)
+    const roomSlashPattern = /Room\s+([A-Z]+[NS]?-\d+[a-z])\/([A-Z]+[NS]?-\d+[a-z])/i;
+    let roomMatch = containerText.match(roomSlashPattern);
+    
+    if (roomMatch) {
+        // Take the bedspace AFTER the slash (second capture group)
+        data.roomSpace = roomMatch[2];
+        log('✓ METHOD 1: Bedspace found (after slash):', data.roomSpace);
+    }
+    
+    // METHOD 2: Look for standalone bedspace pattern in Rez 360 section
+    if (!data.roomSpace) {
+        const rez360Section = containerText.match(/Rez 360[\s\S]*?(?=Activity|Related|$)/);
+        if (rez360Section) {
+            for (let pattern of CONFIG.RESIDENCE_PATTERNS) {
+                const match = rez360Section[0].match(pattern);
+                if (match) {
+                    data.roomSpace = match[0];
+                    log('✓ METHOD 2: Bedspace found in Rez 360 section:', data.roomSpace);
+                    break;
+                }
+            }
+        }
+    }
+    
+    // METHOD 3: Look for "Room Space" in contract/booking table
+    if (!data.roomSpace) {
+        const roomSpacePattern = /Room Space[\s\S]*?([A-Z]+[NS]?-\d+[a-z])/i;
+        roomMatch = containerText.match(roomSpacePattern);
+        if (roomMatch) {
+            data.roomSpace = roomMatch[1];
+            log('✓ METHOD 3: Bedspace found in Room Space field:', data.roomSpace);
+        }
+    }
+    
+    // METHOD 4: Search entire container for any valid bedspace pattern
+    if (!data.roomSpace) {
+        for (let pattern of CONFIG.RESIDENCE_PATTERNS) {
+            const matches = containerText.match(new RegExp(pattern.source, 'gi'));
+            if (matches && matches.length > 0) {
+                // Take the LAST match (most recent/relevant)
+                data.roomSpace = matches[matches.length - 1];
+                log('✓ METHOD 4: Bedspace found via pattern search:', data.roomSpace);
+                break;
+            }
+        }
+    }
+    
+    if (!data.roomSpace) {
+        error('✗ Could not find bedspace with any method');
+        log('Available room text snippets:', containerText.match(/Room[^\n]{0,100}/gi));
+    }
+    
+    // ========================================================================
+    // VALIDATION
+    // ========================================================================
+    const isValid = data.fullName && data.studentNumber && data.roomSpace;
+    log('Extraction complete:', { isValid, data });
+    
+    return isValid ? data : null;
+}
+
+// ============================================================================
+// TIME FORMATTING
+// ============================================================================
+
 function getCurrentTime() {
     const now = new Date();
     let hours = now.getHours();
@@ -90,32 +214,43 @@ function getCurrentTime() {
     return `${hours}:${minutesStr} ${ampm}`;
 }
 
-// Generate log entry with custom package count
+// ============================================================================
+// LOG ENTRY GENERATION
+// ============================================================================
+
 function generateLogEntry(packageCount = 1) {
     try {
         const staffName = getStaffName();
-        // Force the dot format for staff initials specifically
-        const staffInitialsRaw = staffName ? getInitials(staffName) : 'X.X';
-        const staffInitials = staffInitialsRaw.includes('.') ? staffInitialsRaw : staffInitialsRaw.split('').join('.');
+        const staffInitials = staffName ? getInitials(staffName) : 'X.X';
         
         const studentData = getStudentDataFromRez360();
         
-        if (!studentData || !studentData.fullName) {
-            return { success: false, error: 'Could not find student name' };
+        if (!studentData) {
+            return { 
+                success: false, 
+                error: 'Could not extract student data. Check console for details.' 
+            };
+        }
+        
+        if (!studentData.fullName) {
+            return { success: false, error: 'Student name not found' };
         }
         
         if (!studentData.studentNumber) {
-            return { success: false, error: 'Could not find student number' };
+            return { success: false, error: 'Student number not found' };
         }
         
         if (!studentData.roomSpace) {
-            return { success: false, error: 'Could not find room/bed space' };
+            return { success: false, error: 'Room/bedspace not found' };
         }
         
         const initials = getInitials(studentData.fullName);
         const time = getCurrentTime();
         
+        // Format: J.D (20321232) CLVN-349b 1 pkg @ 1:39 am - A.B
         const logEntry = `${initials} (${studentData.studentNumber}) ${studentData.roomSpace} ${packageCount} pkg${packageCount > 1 ? 's' : ''} @ ${time} - ${staffInitials}`;
+        
+        log('Generated log entry:', logEntry);
         
         return {
             success: true,
@@ -131,22 +266,31 @@ function generateLogEntry(packageCount = 1) {
                 staffName
             }
         };
-    } catch (error) {
-        return { success: false, error: error.message };
+    } catch (err) {
+        error('Exception in generateLogEntry:', err);
+        return { success: false, error: err.message };
     }
 }
 
-// Copy to clipboard
+// ============================================================================
+// CLIPBOARD OPERATIONS
+// ============================================================================
+
 async function copyToClipboard(text) {
     try {
         await navigator.clipboard.writeText(text);
+        log('Copied to clipboard:', text);
         return true;
     } catch (err) {
+        error('Clipboard copy failed:', err);
         return false;
     }
 }
 
-// Create button helper
+// ============================================================================
+// UI COMPONENTS
+// ============================================================================
+
 function createStyledButton(text, gradient = 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)') {
     const button = document.createElement('button');
     button.textContent = text;
@@ -177,7 +321,6 @@ function createStyledButton(text, gradient = 'linear-gradient(135deg, #667eea 0%
     return button;
 }
 
-// Find the "X Parcels" span element
 function findParcelCountElement() {
     const spans = Array.from(document.querySelectorAll('span'));
     for (let span of spans) {
@@ -189,22 +332,66 @@ function findParcelCountElement() {
     return null;
 }
 
-// FIXED: Create buttons for multiple packages
+function showPreview(text, data) {
+    const existing = document.getElementById('log-preview-popup');
+    if (existing) existing.remove();
+    
+    const preview = document.createElement('div');
+    preview.id = 'log-preview-popup';
+    preview.style.cssText = `
+        position: fixed;
+        top: 20px;
+        right: 20px;
+        background: white;
+        border: 2px solid #667eea;
+        border-radius: 8px;
+        padding: 16px;
+        box-shadow: 0 4px 20px rgba(0,0,0,0.15);
+        z-index: 10000;
+        max-width: 500px;
+        font-family: monospace;
+        font-size: 13px;
+        animation: slideIn 0.3s ease;
+    `;
+    
+    const staffInfo = data.staffName ? `<div style="font-size: 11px; color: #999; margin-bottom: 4px;">Logged by: ${data.staffName}</div>` : '';
+    const debugInfo = `<div style="font-size: 10px; color: #ccc; margin-top: 8px;">Student: ${data.fullName}<br/>Room: ${data.roomSpace}</div>`;
+    
+    preview.innerHTML = `
+        <div style="font-weight: bold; margin-bottom: 8px; color: #667eea;">✓ Copied to Clipboard</div>
+        ${staffInfo}
+        <div style="background: #f7f7f7; padding: 8px; border-radius: 4px; word-break: break-all; font-weight: 600;">${text}</div>
+        ${debugInfo}
+    `;
+    
+    document.body.appendChild(preview);
+    
+    setTimeout(() => {
+        preview.style.animation = 'slideOut 0.3s ease';
+        setTimeout(() => preview.remove(), 300);
+    }, 4000);
+}
+
+// ============================================================================
+// BUTTON INJECTION
+// ============================================================================
+
 function createLogButtons() {
     // Find all Issue buttons
-    const issueButtons = Array.from(document.querySelectorAll('button, input[type=\"button\"], a.button, a[class*=\"button\"]')).filter(btn => {
+    const issueButtons = Array.from(document.querySelectorAll('button, input[type="button"], a.button, a[class*="button"]')).filter(btn => {
         const text = btn.textContent.toLowerCase();
         return text.includes('issue') && !text.includes('reissue');
     });
     
     if (issueButtons.length === 0) {
-        console.log('No Issue buttons found');
+        log('No Issue buttons found on page');
         return;
     }
     
     const packageCount = issueButtons.length;
+    log(`Found ${packageCount} Issue button(s)`);
     
-    // EDGE CASE 2: If 2+ Issue buttons, add a master button next to \"X Parcels\" text
+    // MASTER BUTTON: For 2+ packages, add button next to "X Parcels" text
     if (packageCount >= 2) {
         const parcelCountElement = findParcelCountElement();
         
@@ -228,7 +415,7 @@ function createLogButtons() {
                     
                     if (copied) {
                         const originalText = masterButton.textContent;
-                        masterButton.textContent = 'Copied!';
+                        masterButton.textContent = '✓ Copied!';
                         masterButton.style.background = 'linear-gradient(135deg, #11998e 0%, #38ef7d 100%)';
                         
                         showPreview(result.logEntry, result.data);
@@ -239,22 +426,21 @@ function createLogButtons() {
                         }, 2000);
                     }
                 } else {
-                    alert('Error: ' + result.error);
+                    alert('❌ Error: ' + result.error);
                 }
             });
             
-            // Insert button right after the \"X Parcels\" span
             parcelCountElement.parentNode.insertBefore(masterButton, parcelCountElement.nextSibling);
+            log('Master button created for', packageCount, 'packages');
         }
     }
     
-    // Add individual \"Copy Log\" buttons next to each Issue button
+    // INDIVIDUAL BUTTONS: Add "Copy Log" next to each Issue button
     issueButtons.forEach((issueBtn, index) => {
         const buttonId = `package-log-btn-${index}`;
         
-        // Check if button already exists
         if (document.getElementById(buttonId)) {
-            return;
+            return; // Already exists
         }
         
         const logButton = createStyledButton('Copy Log');
@@ -264,14 +450,14 @@ function createLogButtons() {
             e.preventDefault();
             e.stopPropagation();
             
-            const result = generateLogEntry(1); // Always 1 pkg for individual buttons
+            const result = generateLogEntry(1);
             
             if (result.success) {
                 const copied = await copyToClipboard(result.logEntry);
                 
                 if (copied) {
                     const originalText = logButton.textContent;
-                    logButton.textContent = 'Copied!';
+                    logButton.textContent = '✓ Copied!';
                     logButton.style.background = 'linear-gradient(135deg, #11998e 0%, #38ef7d 100%)';
                     
                     showPreview(result.logEntry, result.data);
@@ -282,56 +468,20 @@ function createLogButtons() {
                     }, 2000);
                 }
             } else {
-                alert('Error: ' + result.error);
+                alert('❌ Error: ' + result.error);
             }
         });
         
         issueBtn.parentNode.insertBefore(logButton, issueBtn.nextSibling);
     });
+    
+    log('Individual buttons created');
 }
 
-// Show preview
-function showPreview(text, data) {
-    const existing = document.getElementById('log-preview-popup');
-    if (existing) existing.remove();
-    
-    const preview = document.createElement('div');
-    preview.id = 'log-preview-popup';
-    preview.style.cssText = `
-        position: fixed;
-        top: 20px;
-        right: 20px;
-        background: white;
-        border: 2px solid #667eea;
-        border-radius: 8px;
-        padding: 16px;
-        box-shadow: 0 4px 20px rgba(0,0,0,0.15);
-        z-index: 10000;
-        max-width: 400px;
-        font-family: monospace;
-        font-size: 13px;
-        animation: slideIn 0.3s ease;
-    `;
-    
-    const staffInfo = data.staffName ? `<div style=\"font-size: 11px; color: #999; margin-bottom: 4px;\">Logged by: ${data.staffName}</div>` : '';
-    const debugInfo = `<div style=\"font-size: 10px; color: #ccc; margin-top: 8px;\">Student: ${data.fullName} | Room: ${data.roomSpace}</div>`;
-    
-    preview.innerHTML = `
-        <div style=\"font-weight: bold; margin-bottom: 8px; color: #667eea;\">Copied to Clipboard:</div>
-        ${staffInfo}
-        <div style=\"background: #f7f7f7; padding: 8px; border-radius: 4px; word-break: break-all;\">${text}</div>
-        ${debugInfo}
-    `;
-    
-    document.body.appendChild(preview);
-    
-    setTimeout(() => {
-        preview.style.animation = 'slideOut 0.3s ease';
-        setTimeout(() => preview.remove(), 300);
-    }, 4000);
-}
+// ============================================================================
+// ANIMATION STYLES
+// ============================================================================
 
-// Add styles
 const style = document.createElement('style');
 style.textContent = `
     @keyframes slideIn {
@@ -345,8 +495,12 @@ style.textContent = `
 `;
 document.head.appendChild(style);
 
-// Initialize
+// ============================================================================
+// INITIALIZATION
+// ============================================================================
+
 function initialize() {
+    log('Initializing Package Logger...');
     createLogButtons();
 }
 
@@ -356,7 +510,8 @@ if (document.readyState === 'loading') {
     initialize();
 }
 
+// Watch for DOM changes (e.g., navigating between students)
 const observer = new MutationObserver(() => initialize());
 observer.observe(document.body, { childList: true, subtree: true });
 
-console.log('StarRez Package Logger loaded!');
+log('✓ StarRez Package Logger v2.0 loaded successfully!');
