@@ -206,33 +206,9 @@ function getStudentDataFromRez360() {
     }
     
     // ========================================================================
-    // VALIDATION - SECURITY & COMPLIANCE CHECKS
+    // VALIDATION
     // ========================================================================
-    
-    // Check all required fields exist
-    const hasAllFields = data.fullName && data.studentNumber && data.roomSpace;
-    
-    // Validate student number format (must be 8 digits)
-    const validStudentNum = /^\d{8}$/.test(data.studentNumber);
-    
-    // Validate bedspace format (must match known patterns)
-    const validBedspace = /^[A-Z0-9]+[NS]?-(?:[A-Z0-9]+-)?\d+[a-z]$/i.test(data.roomSpace);
-    
-    // Validate name format (must have comma for "LastName, FirstName")
-    const validName = data.fullName && data.fullName.includes(',');
-    
-    const isValid = hasAllFields && validStudentNum && validBedspace && validName;
-    
-    if (!isValid) {
-        error('❌ VALIDATION FAILED:');
-        error('  - All fields present:', hasAllFields);
-        error('  - Valid student number:', validStudentNum, `(${data.studentNumber})`);
-        error('  - Valid bedspace:', validBedspace, `(${data.roomSpace})`);
-        error('  - Valid name format:', validName, `(${data.fullName})`);
-    } else {
-        log('✅ All validation checks passed');
-    }
-    
+    const isValid = data.fullName && data.studentNumber && data.roomSpace;
     log('Extraction complete:', { isValid, data });
     
     return isValid ? data : null;
@@ -267,21 +243,20 @@ function generateLogEntry(packageCount = 1) {
         if (!studentData) {
             return { 
                 success: false, 
-                error: 'Data extraction failed. Check console logs for details.',
-                validationDetails: 'One or more required fields could not be extracted or failed validation.'
+                error: 'Could not extract student data. Check console for details.' 
             };
         }
         
         if (!studentData.fullName) {
-            return { success: false, error: 'Student name not found in breadcrumbs' };
+            return { success: false, error: 'Student name not found' };
         }
         
         if (!studentData.studentNumber) {
-            return { success: false, error: 'Student number not found (must be 8 digits)' };
+            return { success: false, error: 'Student number not found' };
         }
         
         if (!studentData.roomSpace) {
-            return { success: false, error: 'Bedspace not found (check format: XXX-###x)' };
+            return { success: false, error: 'Room/bedspace not found' };
         }
         
         const initials = getInitials(studentData.fullName);
@@ -331,121 +306,34 @@ async function copyToClipboard(text) {
 // UI COMPONENTS
 // ============================================================================
 
-function createStyledButton(text, gradient = 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)', isMaster = false) {
+function createStyledButton(text, gradient = 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)') {
     const button = document.createElement('button');
-    button.className = 'pkg-logger-btn';
-    
-    // Create inner glow effect
-    const glowSpan = document.createElement('span');
-    glowSpan.className = 'pkg-logger-btn-glow';
-    
-    // Create text container
-    const textSpan = document.createElement('span');
-    textSpan.className = 'pkg-logger-btn-text';
-    textSpan.textContent = text;
-    
-    button.appendChild(glowSpan);
-    button.appendChild(textSpan);
-    
-    // Base styles
-    const baseSize = isMaster ? '10px 24px' : '8px 18px';
-    const baseFontSize = isMaster ? '15px' : '14px';
-    
+    button.textContent = text;
     button.style.cssText = `
-        position: relative;
-        margin-left: ${isMaster ? '15px' : '10px'};
-        padding: ${baseSize};
+        margin-left: 10px;
+        padding: 8px 16px;
         background: ${gradient};
-        background-size: 200% 200%;
         color: white;
         border: none;
-        border-radius: 8px;
+        border-radius: 6px;
         cursor: pointer;
-        font-weight: 700;
-        font-size: ${baseFontSize};
-        letter-spacing: 0.5px;
-        text-transform: uppercase;
-        box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2), 0 2px 8px rgba(102, 126, 234, 0.4);
-        transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-        overflow: hidden;
-        vertical-align: middle;
-        animation: gradientShift 3s ease infinite;
+        font-weight: 600;
+        font-size: 14px;
+        box-shadow: 0 2px 8px rgba(102, 126, 234, 0.3);
+        transition: all 0.2s ease;
     `;
     
-    // Glow effect styles
-    glowSpan.style.cssText = `
-        position: absolute;
-        top: 50%;
-        left: 50%;
-        width: 100%;
-        height: 100%;
-        background: radial-gradient(circle, rgba(255,255,255,0.3) 0%, rgba(255,255,255,0) 70%);
-        transform: translate(-50%, -50%) scale(0);
-        border-radius: 50%;
-        transition: transform 0.5s ease;
-        pointer-events: none;
-    `;
-    
-    // Text styles
-    textSpan.style.cssText = `
-        position: relative;
-        z-index: 1;
-        display: inline-block;
-        transition: transform 0.2s ease;
-    `;
-    
-    // Hover effect
     button.addEventListener('mouseenter', () => {
-        button.style.transform = 'translateY(-3px) scale(1.05)';
-        button.style.boxShadow = '0 8px 25px rgba(0, 0, 0, 0.25), 0 4px 15px rgba(102, 126, 234, 0.6)';
-        glowSpan.style.transform = 'translate(-50%, -50%) scale(1.5)';
-        textSpan.style.transform = 'scale(1.05)';
+        button.style.transform = 'translateY(-2px)';
+        button.style.boxShadow = '0 4px 12px rgba(102, 126, 234, 0.4)';
     });
     
     button.addEventListener('mouseleave', () => {
-        button.style.transform = 'translateY(0) scale(1)';
-        button.style.boxShadow = '0 4px 15px rgba(0, 0, 0, 0.2), 0 2px 8px rgba(102, 126, 234, 0.4)';
-        glowSpan.style.transform = 'translate(-50%, -50%) scale(0)';
-        textSpan.style.transform = 'scale(1)';
-    });
-    
-    // Active/click effect
-    button.addEventListener('mousedown', () => {
-        button.style.transform = 'translateY(-1px) scale(0.98)';
-        createRipple(button, event);
-    });
-    
-    button.addEventListener('mouseup', () => {
-        button.style.transform = 'translateY(-3px) scale(1.05)';
+        button.style.transform = 'translateY(0)';
+        button.style.boxShadow = '0 2px 8px rgba(102, 126, 234, 0.3)';
     });
     
     return button;
-}
-
-// Create ripple effect on click
-function createRipple(button, event) {
-    const ripple = document.createElement('span');
-    const rect = button.getBoundingClientRect();
-    const size = Math.max(rect.width, rect.height);
-    const x = event.clientX - rect.left - size / 2;
-    const y = event.clientY - rect.top - size / 2;
-    
-    ripple.style.cssText = `
-        position: absolute;
-        width: ${size}px;
-        height: ${size}px;
-        border-radius: 50%;
-        background: rgba(255, 255, 255, 0.6);
-        left: ${x}px;
-        top: ${y}px;
-        transform: scale(0);
-        animation: rippleEffect 0.6s ease-out;
-        pointer-events: none;
-        z-index: 0;
-    `;
-    
-    button.appendChild(ripple);
-    setTimeout(() => ripple.remove(), 600);
 }
 
 function findParcelCountElement() {
@@ -469,60 +357,33 @@ function showPreview(text, data) {
         position: fixed;
         top: 20px;
         right: 20px;
-        background: linear-gradient(135deg, #ffffff 0%, #f8f9ff 100%);
-        border: 2px solid transparent;
-        background-clip: padding-box;
-        border-radius: 12px;
-        padding: 20px;
-        box-shadow: 0 10px 40px rgba(0, 0, 0, 0.15), 0 4px 20px rgba(102, 126, 234, 0.2);
+        background: white;
+        border: 2px solid #667eea;
+        border-radius: 8px;
+        padding: 16px;
+        box-shadow: 0 4px 20px rgba(0,0,0,0.15);
         z-index: 10000;
         max-width: 500px;
-        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen', 'Ubuntu', 'Cantarell', sans-serif;
-        animation: slideIn 0.4s cubic-bezier(0.4, 0, 0.2, 1);
-        backdrop-filter: blur(10px);
+        font-family: monospace;
+        font-size: 13px;
+        animation: slideIn 0.3s ease;
     `;
     
-    // Add gradient border effect
-    preview.style.position = 'relative';
-    preview.style.background = 'white';
-    preview.style.border = 'none';
+    const staffInfo = data.staffName ? `<div style="font-size: 11px; color: #999; margin-bottom: 4px;">Logged by: ${data.staffName}</div>` : '';
+    const debugInfo = `<div style="font-size: 10px; color: #ccc; margin-top: 8px;">Student: ${data.fullName}<br/>Room: ${data.roomSpace}</div>`;
     
-    const borderGradient = document.createElement('div');
-    borderGradient.style.cssText = `
-        position: absolute;
-        top: -2px;
-        left: -2px;
-        right: -2px;
-        bottom: -2px;
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 50%, #f093fb 100%);
-        border-radius: 12px;
-        z-index: -1;
-        animation: gradientShift 3s ease infinite;
-        background-size: 200% 200%;
-    `;
-    preview.appendChild(borderGradient);
-    
-    const staffInfo = data.staffName ? `<div style="font-size: 11px; color: #666; margin-bottom: 8px; font-weight: 500;">📋 Logged by: ${data.staffName}</div>` : '';
-    const debugInfo = `<div style="font-size: 10px; color: #999; margin-top: 12px; padding-top: 12px; border-top: 1px solid #eee;">👤 Student: ${data.fullName}<br/>🏠 Room: ${data.roomSpace}</div>`;
-    
-    const content = document.createElement('div');
-    content.style.cssText = 'position: relative; z-index: 1;';
-    content.innerHTML = `
-        <div style="font-weight: 700; margin-bottom: 10px; color: #667eea; font-size: 14px; display: flex; align-items: center; gap: 8px;">
-            <span style="font-size: 18px;">✓</span>
-            <span>Copied to Clipboard</span>
-        </div>
+    preview.innerHTML = `
+        <div style="font-weight: bold; margin-bottom: 8px; color: #667eea;">✓ Copied to Clipboard</div>
         ${staffInfo}
-        <div style="background: linear-gradient(135deg, #f7f7ff 0%, #f0f0ff 100%); padding: 12px; border-radius: 8px; word-break: break-all; font-weight: 600; font-family: 'Monaco', 'Menlo', 'Consolas', monospace; font-size: 13px; color: #333; border: 1px solid #e0e0ff;">${text}</div>
+        <div style="background: #f7f7f7; padding: 8px; border-radius: 4px; word-break: break-all; font-weight: 600;">${text}</div>
         ${debugInfo}
     `;
-    preview.appendChild(content);
     
     document.body.appendChild(preview);
     
     setTimeout(() => {
-        preview.style.animation = 'slideOut 0.4s cubic-bezier(0.4, 0, 0.2, 1)';
-        setTimeout(() => preview.remove(), 400);
+        preview.style.animation = 'slideOut 0.3s ease';
+        setTimeout(() => preview.remove(), 300);
     }, 4000);
 }
 
@@ -552,10 +413,11 @@ function createLogButtons() {
         if (parcelCountElement && !document.getElementById('package-log-master-btn')) {
             const masterButton = createStyledButton(
                 `Copy ${packageCount} pkgs`,
-                'linear-gradient(135deg, #f093fb 0%, #f5576c 100%)',
-                true // isMaster flag
+                'linear-gradient(135deg, #f093fb 0%, #f5576c 100%)'
             );
             masterButton.id = 'package-log-master-btn';
+            masterButton.style.marginLeft = '15px';
+            masterButton.style.verticalAlign = 'middle';
             
             masterButton.addEventListener('click', async (e) => {
                 e.preventDefault();
@@ -567,18 +429,15 @@ function createLogButtons() {
                     const copied = await copyToClipboard(result.logEntry);
                     
                     if (copied) {
-                        const originalText = masterButton.querySelector('.pkg-logger-btn-text').textContent;
-                        const textSpan = masterButton.querySelector('.pkg-logger-btn-text');
-                        textSpan.textContent = '✓ Copied!';
+                        const originalText = masterButton.textContent;
+                        masterButton.textContent = '✓ Copied!';
                         masterButton.style.background = 'linear-gradient(135deg, #11998e 0%, #38ef7d 100%)';
-                        masterButton.style.animation = 'successPulse 0.5s ease';
                         
                         showPreview(result.logEntry, result.data);
                         
                         setTimeout(() => {
-                            textSpan.textContent = originalText;
+                            masterButton.textContent = originalText;
                             masterButton.style.background = 'linear-gradient(135deg, #f093fb 0%, #f5576c 100%)';
-                            masterButton.style.animation = 'gradientShift 3s ease infinite';
                         }, 2000);
                     }
                 } else {
@@ -612,18 +471,15 @@ function createLogButtons() {
                 const copied = await copyToClipboard(result.logEntry);
                 
                 if (copied) {
-                    const originalText = logButton.querySelector('.pkg-logger-btn-text').textContent;
-                    const textSpan = logButton.querySelector('.pkg-logger-btn-text');
-                    textSpan.textContent = '✓ Copied!';
+                    const originalText = logButton.textContent;
+                    logButton.textContent = '✓ Copied!';
                     logButton.style.background = 'linear-gradient(135deg, #11998e 0%, #38ef7d 100%)';
-                    logButton.style.animation = 'successPulse 0.5s ease';
                     
                     showPreview(result.logEntry, result.data);
                     
                     setTimeout(() => {
-                        textSpan.textContent = originalText;
+                        logButton.textContent = originalText;
                         logButton.style.background = 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)';
-                        logButton.style.animation = 'gradientShift 3s ease infinite';
                     }, 2000);
                 }
             } else {
@@ -644,65 +500,12 @@ function createLogButtons() {
 const style = document.createElement('style');
 style.textContent = `
     @keyframes slideIn {
-        from { 
-            transform: translateX(400px); 
-            opacity: 0; 
-        }
-        to { 
-            transform: translateX(0); 
-            opacity: 1; 
-        }
+        from { transform: translateX(400px); opacity: 0; }
+        to { transform: translateX(0); opacity: 1; }
     }
-    
     @keyframes slideOut {
-        from { 
-            transform: translateX(0); 
-            opacity: 1; 
-        }
-        to { 
-            transform: translateX(400px); 
-            opacity: 0; 
-        }
-    }
-    
-    @keyframes gradientShift {
-        0% {
-            background-position: 0% 50%;
-        }
-        50% {
-            background-position: 100% 50%;
-        }
-        100% {
-            background-position: 0% 50%;
-        }
-    }
-    
-    @keyframes rippleEffect {
-        0% {
-            transform: scale(0);
-            opacity: 1;
-        }
-        100% {
-            transform: scale(4);
-            opacity: 0;
-        }
-    }
-    
-    @keyframes successPulse {
-        0%, 100% {
-            transform: scale(1);
-        }
-        50% {
-            transform: scale(1.1);
-        }
-    }
-    
-    .pkg-logger-btn {
-        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen', 'Ubuntu', 'Cantarell', sans-serif;
-    }
-    
-    .pkg-logger-btn:active {
-        transform: translateY(-1px) scale(0.98) !important;
+        from { transform: translateX(0); opacity: 1; }
+        to { transform: translateX(400px); opacity: 0; }
     }
 `;
 document.head.appendChild(style);
