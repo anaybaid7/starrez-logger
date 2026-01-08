@@ -6,8 +6,12 @@
 const CONFIG = {
     DEBUG: true, // Set to false in production
     RESIDENCE_PATTERNS: [
-        /([A-Z]+[NS]?)-(\d+[a-z])/i,  // CLVN-349b, CLVS-039a, MKVA-123a
-        /([A-Z]+)-(\d+[a-z])/i,        // REV-456b, UWP-789c, V1-012d
+        // Supports ALL formats including digits in residence codes:
+        // - Standard: MHR-323a, UWP-456b
+        // - With digits: V1-W2-311a (V1 has digit!)
+        // - N/S suffix: CLVN-349b, CLVS-039a  
+        // - E-buildings: REV-E4-455a, REV-EA-204b, MKV-A3-789c
+        /[A-Z0-9]+[NS]?-(?:[A-Z0-9]+-)?\d+[a-z]/i
     ]
 };
 
@@ -96,8 +100,18 @@ function getStudentDataFromRez360() {
     const data = {};
     
     // Find the active detail container
-    const detailContainer = document.querySelector('.ui-tabs-panel:not(.ui-tabs-hide)') || document.body;
-    const containerText = detailContainer.innerText;
+    let detailContainer = document.querySelector('.ui-tabs-panel:not(.ui-tabs-hide)') || document.body;
+    let containerText = detailContainer.innerText;
+    
+    // CRITICAL FIX: Isolate ONLY the Rez 360 detail section (after "EntryID:")
+    // This prevents grabbing data from dashboard tables (Loaner Keys, Parcels, etc.)
+    const entryIdIndex = containerText.indexOf('EntryID:');
+    if (entryIdIndex !== -1) {
+        containerText = containerText.substring(entryIdIndex);
+        log('✓ Isolated Rez 360 section (starts at EntryID)');
+    } else {
+        log('⚠ Could not find EntryID marker, using full container');
+    }
     
     log('Container text length:', containerText.length);
     
@@ -138,7 +152,8 @@ function getStudentDataFromRez360() {
     // ========================================================================
     
     // METHOD 1: Look for "Room\n\nBEDSPACE/BEDSPACE" pattern (most reliable for Rez 360 view)
-    const roomSlashPattern = /Room\s+([A-Z]+[NS]?-\d+[a-z])\/([A-Z]+[NS]?-\d+[a-z])/i;
+    // Supports: CLVN-349b/CLVN-349b, REV-E4-455a/REV-E4-455a, V1-W2-311a/V1-W2-311a
+    const roomSlashPattern = /Room\s+([A-Z0-9]+[NS]?-(?:[A-Z0-9]+-)?\d+[a-z])\/([A-Z0-9]+[NS]?-(?:[A-Z0-9]+-)?\d+[a-z])/i;
     let roomMatch = containerText.match(roomSlashPattern);
     
     if (roomMatch) {
@@ -164,7 +179,7 @@ function getStudentDataFromRez360() {
     
     // METHOD 3: Look for "Room Space" in contract/booking table
     if (!data.roomSpace) {
-        const roomSpacePattern = /Room Space[\s\S]*?([A-Z]+[NS]?-\d+[a-z])/i;
+        const roomSpacePattern = /Room Space[\s\S]*?([A-Z0-9]+[NS]?-(?:[A-Z0-9]+-)?\d+[a-z])/i;
         roomMatch = containerText.match(roomSpacePattern);
         if (roomMatch) {
             data.roomSpace = roomMatch[1];
