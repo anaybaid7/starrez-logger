@@ -15,6 +15,14 @@ const CONFIG = {
     ]
 };
 
+// Global state tracking
+let lastExtractedData = {
+    name: null,
+    studentNumber: null,
+    roomSpace: null,
+    timestamp: null
+};
+
 // ============================================================================
 // UTILITY FUNCTIONS
 // ============================================================================
@@ -206,9 +214,42 @@ function getStudentDataFromRez360() {
     }
     
     // ========================================================================
-    // VALIDATION
+    // VALIDATION - SECURITY & COMPLIANCE CHECKS
     // ========================================================================
-    const isValid = data.fullName && data.studentNumber && data.roomSpace;
+    
+    // Check all required fields exist
+    const hasAllFields = data.fullName && data.studentNumber && data.roomSpace;
+    
+    // Validate student number format (must be 8 digits)
+    const validStudentNum = /^\d{8}$/.test(data.studentNumber);
+    
+    // Validate bedspace format (must match known patterns)
+    const validBedspace = /^[A-Z0-9]+[NS]?-(?:[A-Z0-9]+-)?\d+[a-z]$/i.test(data.roomSpace);
+    
+    // Validate name format (must have comma for "LastName, FirstName")
+    const validName = data.fullName && data.fullName.includes(',');
+    
+    const isValid = hasAllFields && validStudentNum && validBedspace && validName;
+    
+    if (!isValid) {
+        error('❌ VALIDATION FAILED:');
+        error('  - All fields present:', hasAllFields);
+        error('  - Valid student number:', validStudentNum, `(${data.studentNumber})`);
+        error('  - Valid bedspace:', validBedspace, `(${data.roomSpace})`);
+        error('  - Valid name format:', validName, `(${data.fullName})`);
+    } else {
+        log('✅ All validation checks passed');
+        
+        // Cache the extracted data for comparison
+        lastExtractedData = {
+            name: data.fullName,
+            studentNumber: data.studentNumber,
+            roomSpace: data.roomSpace,
+            timestamp: Date.now()
+        };
+        log('✓ Cached extraction data for validation');
+    }
+    
     log('Extraction complete:', { isValid, data });
     
     return isValid ? data : null;
@@ -238,25 +279,74 @@ function generateLogEntry(packageCount = 1) {
         const staffName = getStaffName();
         const staffInitials = staffName ? getInitials(staffName) : 'X.X';
         
+        // CRITICAL: Get current breadcrumb to verify we're on the right profile
+        const breadcrumbs = document.querySelectorAll('habitat-header-breadcrumb-item');
+        let currentBreadcrumb = null;
+        
+        for (let crumb of breadcrumbs) {
+            const text = crumb.textContent.trim();
+            if (text.includes(',') && !text.includes('Dashboard') && !text.includes('Desk')) {
+                currentBreadcrumb = text;
+                break;
+            }
+        }
+        
+        if (!currentBreadcrumb) {
+            return { 
+                success: false, 
+                error: 'No student profile detected in breadcrumb' 
+            };
+        }
+        
         const studentData = getStudentDataFromRez360();
         
         if (!studentData) {
             return { 
                 success: false, 
-                error: 'Could not extract student data. Check console for details.' 
+                error: 'Data extraction failed. Check console logs for details.',
+                validationDetails: 'One or more required fields could not be extracted or failed validation.'
             };
         }
         
+        // CRITICAL VALIDATION: Ensure extracted name matches current breadcrumb
+        if (studentData.fullName !== currentBreadcrumb) {
+            error('❌ DATA MISMATCH DETECTED:');
+            error('  Breadcrumb:', currentBreadcrumb);
+            error('  Extracted:', studentData.fullName);
+            return {
+                success: false,
+                error: 'Profile data mismatch. Please wait for page to load fully and try again.'
+            };
+        }
+        
+        // ADDITIONAL CHECK: Verify against cached data if available
+        const cacheAge = Date.now() - (lastExtractedData.timestamp || 0);
+        if (lastExtractedData.name && cacheAge < 10000) { // Cache valid for 10 seconds
+            if (lastExtractedData.name !== studentData.fullName ||
+                lastExtractedData.studentNumber !== studentData.studentNumber ||
+                lastExtractedData.roomSpace !== studentData.roomSpace) {
+                error('❌ CACHE MISMATCH DETECTED:');
+                error('  Cached:', lastExtractedData);
+                error('  Current:', studentData);
+                error('  Cache age:', cacheAge, 'ms');
+                return {
+                    success: false,
+                    error: 'Stale data detected. Page may still be loading. Please wait 2-3 seconds and try again.'
+                };
+            }
+            log('✓ Cache validation passed');
+        }
+        
         if (!studentData.fullName) {
-            return { success: false, error: 'Student name not found' };
+            return { success: false, error: 'Student name not found in breadcrumbs' };
         }
         
         if (!studentData.studentNumber) {
-            return { success: false, error: 'Student number not found' };
+            return { success: false, error: 'Student number not found (must be 8 digits)' };
         }
         
         if (!studentData.roomSpace) {
-            return { success: false, error: 'Room/bedspace not found' };
+            return { success: false, error: 'Bedspace not found (check format: XXX-###x)' };
         }
         
         const initials = getInitials(studentData.fullName);
@@ -265,7 +355,8 @@ function generateLogEntry(packageCount = 1) {
         // Format: J.D (20321232) CLVN-349b 1 pkg @ 1:39 am - A.B
         const logEntry = `${initials} (${studentData.studentNumber}) ${studentData.roomSpace} ${packageCount} pkg${packageCount > 1 ? 's' : ''} @ ${time} - ${staffInitials}`;
         
-        log('Generated log entry:', logEntry);
+        log('✓ Generated log entry:', logEntry);
+        log('✓ Validated against breadcrumb:', currentBreadcrumb);
         
         return {
             success: true,
@@ -419,9 +510,25 @@ function createLogButtons() {
             masterButton.style.marginLeft = '15px';
             masterButton.style.verticalAlign = 'middle';
             
+            // Disable button for 2 seconds to ensure DOM is stable
+            masterButton.disabled = true;
+            masterButton.style.opacity = '0.6';
+            masterButton.style.cursor = 'not-allowed';
+            const originalText = masterButton.textContent;
+            masterButton.textContent = 'Loading...';
+            
+            setTimeout(() => {
+                masterButton.disabled = false;
+                masterButton.style.opacity = '1';
+                masterButton.style.cursor = 'pointer';
+                masterButton.textContent = originalText;
+            }, 2000);
+            
             masterButton.addEventListener('click', async (e) => {
                 e.preventDefault();
                 e.stopPropagation();
+                
+                if (masterButton.disabled) return;
                 
                 const result = generateLogEntry(packageCount);
                 
@@ -429,14 +536,13 @@ function createLogButtons() {
                     const copied = await copyToClipboard(result.logEntry);
                     
                     if (copied) {
-                        const originalText = masterButton.textContent;
                         masterButton.textContent = '✓ Copied!';
                         masterButton.style.background = 'linear-gradient(135deg, #11998e 0%, #38ef7d 100%)';
                         
                         showPreview(result.logEntry, result.data);
                         
                         setTimeout(() => {
-                            masterButton.textContent = originalText;
+                            masterButton.textContent = `Copy ${packageCount} pkgs`;
                             masterButton.style.background = 'linear-gradient(135deg, #f093fb 0%, #f5576c 100%)';
                         }, 2000);
                     }
@@ -461,9 +567,25 @@ function createLogButtons() {
         const logButton = createStyledButton('Copy Log');
         logButton.id = buttonId;
         
+        // Disable button for 2 seconds to ensure DOM is stable
+        logButton.disabled = true;
+        logButton.style.opacity = '0.6';
+        logButton.style.cursor = 'not-allowed';
+        const originalText = logButton.textContent;
+        logButton.textContent = 'Loading...';
+        
+        setTimeout(() => {
+            logButton.disabled = false;
+            logButton.style.opacity = '1';
+            logButton.style.cursor = 'pointer';
+            logButton.textContent = originalText;
+        }, 2000);
+        
         logButton.addEventListener('click', async (e) => {
             e.preventDefault();
             e.stopPropagation();
+            
+            if (logButton.disabled) return;
             
             const result = generateLogEntry(1);
             
@@ -471,14 +593,13 @@ function createLogButtons() {
                 const copied = await copyToClipboard(result.logEntry);
                 
                 if (copied) {
-                    const originalText = logButton.textContent;
                     logButton.textContent = '✓ Copied!';
                     logButton.style.background = 'linear-gradient(135deg, #11998e 0%, #38ef7d 100%)';
                     
                     showPreview(result.logEntry, result.data);
                     
                     setTimeout(() => {
-                        logButton.textContent = originalText;
+                        logButton.textContent = 'Copy Log';
                         logButton.style.background = 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)';
                     }, 2000);
                 }
@@ -511,12 +632,82 @@ style.textContent = `
 document.head.appendChild(style);
 
 // ============================================================================
-// INITIALIZATION
+// INITIALIZATION - WITH TIMING FIXES FOR SLOW COMPUTERS
 // ============================================================================
 
+let initTimeout = null;
+let lastBreadcrumb = null;
+let validationAttempts = 0;
+
 function initialize() {
-    log('Initializing Package Logger...');
-    createLogButtons();
+    // Aggressive debounce for slower computers: wait for DOM to FULLY stabilize
+    clearTimeout(initTimeout);
+    
+    initTimeout = setTimeout(() => {
+        // Get current breadcrumb to detect profile changes
+        const breadcrumbs = document.querySelectorAll('habitat-header-breadcrumb-item');
+        let currentBreadcrumb = null;
+        
+        for (let crumb of breadcrumbs) {
+            const text = crumb.textContent.trim();
+            if (text.includes(',') && !text.includes('Dashboard') && !text.includes('Desk')) {
+                currentBreadcrumb = text;
+                break;
+            }
+        }
+        
+        // If breadcrumb changed, clear old buttons and reset validation
+        if (currentBreadcrumb !== lastBreadcrumb) {
+            log('Profile changed:', lastBreadcrumb, '→', currentBreadcrumb);
+            clearOldButtons();
+            lastBreadcrumb = currentBreadcrumb;
+            validationAttempts = 0;
+        }
+        
+        // Only create buttons if we have a valid student profile
+        if (currentBreadcrumb) {
+            // CRITICAL: Wait for EntryID section to exist before creating buttons
+            const container = document.querySelector('.ui-tabs-panel:not(.ui-tabs-hide)') || document.body;
+            const hasEntryId = container.innerText.includes('EntryID:');
+            
+            if (!hasEntryId) {
+                validationAttempts++;
+                if (validationAttempts < 10) {
+                    log(`⏳ Waiting for Rez 360 data to load... (attempt ${validationAttempts}/10)`);
+                    // Retry after another second
+                    setTimeout(initialize, 1000);
+                    return;
+                } else {
+                    log('⚠️ Gave up waiting for EntryID after 10 attempts');
+                }
+            } else {
+                log('✓ EntryID found, proceeding with button creation');
+                validationAttempts = 0;
+            }
+            
+            log('Initializing Package Logger for:', currentBreadcrumb);
+            createLogButtons();
+        } else {
+            log('No student profile detected, skipping button creation');
+        }
+    }, 1000); // Increased to 1 second for slower computers
+}
+
+function clearOldButtons() {
+    // Remove all existing buttons
+    document.querySelectorAll('[id^="package-log-btn-"]').forEach(btn => btn.remove());
+    const masterBtn = document.getElementById('package-log-master-btn');
+    if (masterBtn) masterBtn.remove();
+    
+    // Clear cached data when profile changes
+    lastExtractedData = {
+        name: null,
+        studentNumber: null,
+        roomSpace: null,
+        timestamp: null
+    };
+    
+    log('✓ Cleared old buttons and cached data');
 }
 
 if (document.readyState === 'loading') {
@@ -525,8 +716,18 @@ if (document.readyState === 'loading') {
     initialize();
 }
 
-// Watch for DOM changes (e.g., navigating between students)
-const observer = new MutationObserver(() => initialize());
-observer.observe(document.body, { childList: true, subtree: true });
+// Watch for navigation changes (but aggressively debounced for slow computers)
+let observerTimeout = null;
+const observer = new MutationObserver(() => {
+    clearTimeout(observerTimeout);
+    observerTimeout = setTimeout(() => {
+        initialize();
+    }, 1500); // Wait 1.5 seconds after last DOM change
+});
+
+observer.observe(document.body, { 
+    childList: true, 
+    subtree: true 
+});
 
 log('✓ StarRez Package Logger v2.0 loaded successfully!');
