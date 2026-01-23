@@ -341,7 +341,7 @@ async function handleButtonClick(button, count, originalText, gradient, type) {
 // BUTTON CREATION LOGIC
 // ----------------------------------------------------------------------------
 
-function createLockoutButton() {
+function createLockoutButton(retryCount = 0) {
     const detailContainer = document.querySelector('.ui-tabs-panel:not(.ui-tabs-hide)') || document.body;
     
     // 1. Strict Profile Check: Are we on a student profile?
@@ -358,7 +358,14 @@ function createLockoutButton() {
         return (/Key Code|KEYS|LOANER/i.test(el.textContent)) && el.textContent.length < 150;
     });
 
-    if (candidates.length === 0) return;
+    if (candidates.length === 0) {
+        // RETRY: Keys section might not be loaded yet
+        if (retryCount < 5) {
+            log(`Keys section not found, retrying... (${retryCount + 1}/5)`);
+            setTimeout(() => createLockoutButton(retryCount + 1), 500);
+        }
+        return;
+    }
     
     // Sort by length to find the specific label, not the container
     candidates.sort((a, b) => a.textContent.length - b.textContent.length);
