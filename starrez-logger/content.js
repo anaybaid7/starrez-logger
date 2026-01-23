@@ -1,5 +1,5 @@
 // ============================================================================
-// StarRez Package Logger v2.5 - STABLE NO-FLICKER & STRICT FORMAT
+// StarRez Package Logger v2.6 - FINAL STABLE & STRICT
 // ============================================================================
 // PURPOSE: Automates logging for UWP Front Desk operations in StarRez
 // 
@@ -15,7 +15,7 @@
 const CONFIG = {
     DEBUG: true, 
     
-    // Pattern matching for residence codes
+    // Pattern matching
     RESIDENCE_PATTERN: /[A-Z0-9]+[NS]?-(?:[A-Z0-9]+-)?\d+[a-z]/i,
     STUDENT_NUMBER_PATTERN: /^\d{8}$/,
     
@@ -23,9 +23,9 @@ const CONFIG = {
     CACHE_DURATION: 10000,            
     INIT_DEBOUNCE: 300,              
     OBSERVER_DEBOUNCE: 500,          
-    BUTTON_ENABLE_DELAY: 500,        
+    BUTTON_ENABLE_DELAY: 200, // Faster button enable
     PREVIEW_DURATION: 4000,          
-    MAX_VALIDATION_ATTEMPTS: 15
+    MAX_VALIDATION_ATTEMPTS: 20
 };
 
 // ============================================================================
@@ -189,47 +189,49 @@ function generateLogEntry(packageCount = 1) {
 }
 
 /**
- * STRICT KEY EXTRACTION
- * Uses Student ID to ensure we only grab keys for the current student
- * Filters out lowercase results (usernames/emails)
+ * STRICT KEY EXTRACTION (v2.6)
+ * 1. Uses Regex to find Key Codes.
+ * 2. Filters out lowercase (emails/usernames).
+ * 3. Filters out the Student ID itself.
  */
 function extractKeyCodes(studentName, studentID) {
     const detailContainer = document.querySelector('.ui-tabs-panel:not(.ui-tabs-hide)') || document.body;
     const text = detailContainer.innerText;
     
+    // Regex finds "Label : CODE"
     const allMatches = Array.from(text.matchAll(/(?:Bedroom|Floor|Mail|Unit|Key|LOANER)[^:\r\n]*:\s*([A-Z0-9]+)/gi));
+    
+    // Detection for "Report Mode" (busy list)
     const isReportMode = /Entry Name.*Student Number/i.test(text) || /Loaner Keys Report/i.test(text) || allMatches.length > 4;
 
     if (isReportMode && studentID) {
-        log(`Report Mode Detected - Filtering for ID: ${studentID}`);
-        // STRICT REGEX: Look for StudentID ... KeyLabel : Code
+        log(`Report Mode - Filtering for ID: ${studentID}`);
+        // STRICT: Look for [StudentID] ... [Key] : [Code]
         const strictRegex = new RegExp(`${studentID}[\\s\\S]{0,300}?(?:Bedroom|Floor|Mail|Unit|Key|LOANER)[^:\\r\\n]*:\\s*([A-Z0-9]+)`, "gi");
         const strictMatches = Array.from(text.matchAll(strictRegex));
         
-        if (strictMatches.length > 0) return extractUniqueCodes(strictMatches);
+        if (strictMatches.length > 0) return extractUniqueCodes(strictMatches, studentID);
         
-        // Fallback to Name if ID fails
+        // Fallback to Name
         if (studentName) {
             const escapedName = studentName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
             const nameRegex = new RegExp(`${escapedName}[\\s\\S]{0,300}?(?:Bedroom|Floor|Mail|Unit|Key|LOANER)[^:\\r\\n]*:\\s*([A-Z0-9]+)`, "gi");
             const nameMatches = Array.from(text.matchAll(nameRegex));
-            if (nameMatches.length > 0) return extractUniqueCodes(nameMatches);
+            if (nameMatches.length > 0) return extractUniqueCodes(nameMatches, studentID);
         }
         return null;
     } 
     
-    // Standard Profile Mode (Loose Matching)
-    return extractUniqueCodes(allMatches);
+    return extractUniqueCodes(allMatches, studentID);
 }
 
-function extractUniqueCodes(matches) {
+function extractUniqueCodes(matches, studentID) {
     if (!matches || matches.length === 0) return null;
     const uniqueCodes = new Set();
     matches.forEach(m => {
         const code = m[1].trim();
-        // IGNORE LOWERCASE: Keys are Uppercase (20AA). Usernames (e2levitt) are lower.
-        // Also ensure it's not just a short number.
-        if (code.length > 2 && !/[a-z]/.test(code)) {
+        // FILTER: Length > 2, No Lowercase (removes emails), Not Student ID
+        if (code.length > 2 && !/[a-z]/.test(code) && code !== studentID) {
             uniqueCodes.add(code);
         }
     });
@@ -242,13 +244,13 @@ function generateLockoutEntry() {
         if (!studentData) return { success: false, error: 'Data not found' };
         
         const keyCodes = extractKeyCodes(studentData.fullName, studentData.studentNumber);
-        if (!keyCodes) return { success: false, error: 'No keys found for this student' };
+        if (!keyCodes || keyCodes.length === 0) return { success: false, error: 'No keys found for this student' };
         
         const staffName = getStaffName();
         const staffInitials = staffName ? getInitials(staffName) : 'X.X';
         const initials = getInitials(studentData.fullName);
         
-        // UPDATED FORMAT: Semicolon before Reason
+        // FINAL FORMAT: Semicolon added
         const logEntry = `${initials} (${studentData.studentNumber}) ${studentData.roomSpace} KC: ${keyCodes.join(', ')}; [Fill in Reason] - ${staffInitials}`;
         
         return { success: true, logEntry, data: { ...studentData, keyCodes, staffInitials, staffName } };
@@ -342,19 +344,23 @@ async function handleButtonClick(button, count, originalText, gradient, type) {
 function createLockoutButton() {
     const detailContainer = document.querySelector('.ui-tabs-panel:not(.ui-tabs-hide)') || document.body;
     
-    // STRICT CHECK: Are we on a profile? (Must have EntryID or Rez 360)
+    // 1. Strict Profile Check: Are we on a student profile?
     const isProfile = /EntryID:|Rez 360/i.test(detailContainer.innerText);
     if (!isProfile) return; 
 
-    const hasKeyCodes = /Key Code|KEYS|LOANER/i.test(detailContainer.innerText);
-    if (!hasKeyCodes || document.getElementById('lockout-log-btn')) return;
+    // 2. Prevent Duplicate Buttons
+    if (document.getElementById('lockout-log-btn')) return;
 
+    // 3. Find Anchor: Look for "KEYS", "Key Code", or "Loaner"
     const candidates = Array.from(document.querySelectorAll('*')).filter(el => {
         if (el.offsetParent === null || ['SCRIPT','STYLE'].includes(el.tagName)) return false;
-        return (/Key Code|KEYS|LOANER/i.test(el.textContent)) && el.textContent.length < 100;
+        // Looking for explicit header text or labels
+        return (/Key Code|KEYS|LOANER/i.test(el.textContent)) && el.textContent.length < 150;
     });
 
     if (candidates.length === 0) return;
+    
+    // Sort by length to find the specific label, not the container
     candidates.sort((a, b) => a.textContent.length - b.textContent.length);
     const bestTarget = candidates[0];
 
@@ -367,10 +373,11 @@ function createLockoutButton() {
     
     button.addEventListener('click', (e) => { e.preventDefault(); e.stopPropagation(); handleButtonClick(button, 1, 'Copy Lockout', gradient, 'lockout'); });
     bestTarget.appendChild(button);
+    log('Lockout button created at:', bestTarget.tagName);
 }
 
 function createLogButtons() {
-    // Individual Buttons
+    // Individual Package Buttons
     const issueButtons = Array.from(document.querySelectorAll('button, input[type="button"], a.button')).filter(b => b.textContent.toLowerCase().includes('issue') && !b.textContent.toLowerCase().includes('reissue'));
     issueButtons.forEach((btn, i) => {
         if (document.getElementById(`pkg-btn-${i}`)) return;
@@ -380,7 +387,7 @@ function createLogButtons() {
         btn.parentNode.insertBefore(b, btn.nextSibling);
     });
 
-    // Master Button
+    // Master Package Button
     const parcelCount = Array.from(document.querySelectorAll('span')).find(s => /^\d+\s+Parcel[s]?$/i.test(s.textContent.trim()));
     if (parcelCount && !document.getElementById('pkg-master')) {
         const count = parseInt(parcelCount.textContent);
@@ -394,7 +401,7 @@ function createLogButtons() {
 
     createLockoutButton();
     
-    // Package Label Button
+    // Print Label Button
     const entryActions = Array.from(document.querySelectorAll('button')).find(el => /Entry Actions/i.test(el.textContent));
     if (entryActions && !document.getElementById('pkg-label')) {
         const b = createStyledButton('Print Label', 'linear-gradient(135deg, #4facfe 0%, #00f2fe 100%)');
@@ -418,10 +425,9 @@ function initialize() {
     state.timers.init = setTimeout(() => {
         const currentBreadcrumb = getCurrentBreadcrumb();
         
-        // LOOP FIX: Only clear buttons if the student name (breadcrumb) actually changes.
-        // Do NOT clear buttons just because the DOM content shifted (which happens when we add buttons).
+        // LOOP FIX: Only clear buttons if the STUDENT actually changes.
         if (currentBreadcrumb && currentBreadcrumb !== state.lastBreadcrumb) {
-            log('New profile detected - Cleaning up old buttons');
+            log('New profile detected - Refreshing buttons');
             clearOldButtons();
             state.lastBreadcrumb = currentBreadcrumb;
         }
@@ -429,7 +435,7 @@ function initialize() {
         const container = document.querySelector('.ui-tabs-panel:not(.ui-tabs-hide)') || document.body;
         if (!container.innerText.includes('EntryID:') && state.validationAttempts < CONFIG.MAX_VALIDATION_ATTEMPTS) {
             state.validationAttempts++;
-            setTimeout(initialize, 500); // Fast retry
+            setTimeout(initialize, 500); 
             return;
         }
         
@@ -449,4 +455,4 @@ else initialize();
 const observer = new MutationObserver(() => { clearTimer('observer'); state.timers.observer = setTimeout(initialize, CONFIG.OBSERVER_DEBOUNCE); });
 observer.observe(document.body, { childList: true, subtree: true });
 
-log('StarRez Package Logger v2.5 Loaded');
+log('StarRez Package Logger v2.6 Loaded');
