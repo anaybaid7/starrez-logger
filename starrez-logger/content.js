@@ -1,4 +1,49 @@
-// ============================================================================
+/**
+ * Creates individual "Copy Log" buttons next to each Issue button
+ * Allows logging packages one at a time
+ * @returns {number} Number of Issue buttons found
+ */
+function createIndividualButtons() {
+    // Find all Issue buttons on the page
+    const issueButtons = Array.from(document.querySelectorAll('button, input[type="button"], a.button, a[class*="button"]'))
+        .filter(btn => {
+            const text = btn.textContent.toLowerCase();
+            return text.includes('issue') && !text.includes('reissue');
+        });
+    
+    log('Found', issueButtons.length, 'Issue buttons');
+    
+    if (issueButtons.length === 0) {
+        log('No Issue buttons found - checking all buttons on page');
+        const allButtons = document.querySelectorAll('button, input[type="button"]');
+        log('Total buttons on page:', allButtons.length);
+        log('Button texts:', Array.from(allButtons).slice(0, 10).map(b => b.textContent.trim()));
+        return 0;
+    }
+    
+    const gradient = 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)';
+    const successGradient = 'linear-gradient(135deg, #11998e 0%, #38ef7d 100%)';
+    const buttonText = 'Copy Log';
+    
+    issueButtons.forEach((issueBtn, index) => {
+        const buttonId = `package-log-btn-${index}`;
+        if (document.getElementById(buttonId)) {
+            log('Button', buttonId, 'already exists, skipping');
+            return; // Skip if already exists
+        }
+        
+        const button = createStyledButton('Loading...', gradient);
+        button.id = buttonId;
+        button.disabled = true;
+        button.style.opacity = '0.6';
+        button.style.cursor = 'not-allowed';
+        button.dataset.originalGradient = gradient;
+        
+        enableButtonAfterDelay(button, buttonText);
+        
+        button.addEventListener('click', (e) => {
+            e.preventDefault();
+            e.stopPropagation();// ============================================================================
 // StarRez Package Logger v2.1 - PRODUCTION READY FOR IST REVIEW
 // ============================================================================
 // PURPOSE: Automates logging for UWP Front Desk operations in StarRez
@@ -992,30 +1037,54 @@ function createLockoutButton() {
  * Always visible on student profiles for printing labels
  */
 function createPackageLabelButton() {
-    if (document.getElementById('package-label-btn')) {
-        return; // Already exists
+    const existingButton = document.getElementById('package-label-btn');
+    if (existingButton) {
+        log('Print Label button already exists, skipping');
+        return;
     }
     
-    // Find the "Entry Actions" or "New" button area (top right)
-    const entryActionsBtn = Array.from(document.querySelectorAll('button, a')).find(el => 
-        /Entry Actions|New/i.test(el.textContent) && el.textContent.length < 20
+    log('Attempting to create Print Label button...');
+    
+    // Strategy 1: Find "Entry Actions" button
+    let entryActionsBtn = Array.from(document.querySelectorAll('button')).find(el => 
+        /Entry Actions/i.test(el.textContent) && el.textContent.length < 30
     );
     
-    let targetLocation = entryActionsBtn?.parentElement;
+    // Strategy 2: Find the "New" dropdown button
+    if (!entryActionsBtn) {
+        entryActionsBtn = Array.from(document.querySelectorAll('button')).find(el => {
+            const text = el.textContent.trim();
+            return text === 'New' || text.startsWith('New');
+        });
+    }
     
-    // Fallback: Look for the header container
-    if (!targetLocation) {
-        const headerContainers = document.querySelectorAll('[class*="header"], [class*="toolbar"], [class*="actions"]');
-        for (const container of headerContainers) {
-            if (container.querySelector('button')) {
-                targetLocation = container;
-                break;
-            }
+    // Strategy 3: Find any button in the top header area
+    if (!entryActionsBtn) {
+        const topButtons = Array.from(document.querySelectorAll('button')).filter(btn => {
+            const rect = btn.getBoundingClientRect();
+            return rect.top < 150 && rect.right > window.innerWidth - 500;
+        });
+        if (topButtons.length > 0) {
+            entryActionsBtn = topButtons[0];
+            log('Using top-right button as anchor');
         }
     }
     
-    if (!targetLocation) {
-        log('Could not find suitable location for package label button');
+    let targetContainer = null;
+    if (entryActionsBtn) {
+        targetContainer = entryActionsBtn.parentElement;
+        log('Found button container');
+    } else {
+        // Fallback: breadcrumb area
+        const breadcrumb = document.querySelector('habitat-header-breadcrumb-item');
+        if (breadcrumb) {
+            targetContainer = breadcrumb.parentElement?.parentElement;
+            log('Using breadcrumb container');
+        }
+    }
+    
+    if (!targetContainer) {
+        error('Could not find location for Print Label button');
         return;
     }
     
@@ -1038,14 +1107,14 @@ function createPackageLabelButton() {
         handleButtonClick(button, 1, buttonText, successGradient, 'label');
     });
     
-    // Insert before Entry Actions button (or append to container)
+    // Insert before Entry Actions or append
     if (entryActionsBtn) {
         entryActionsBtn.parentNode.insertBefore(button, entryActionsBtn);
     } else {
-        targetLocation.appendChild(button);
+        targetContainer.appendChild(button);
     }
     
-    log('Package label button created');
+    log('Print Label button created successfully');
 }
 
 /**
