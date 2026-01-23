@@ -1,5 +1,5 @@
 // ============================================================================
-// StarRez Package Logger v2.4 - STRICT LOCKOUT & PROFILE CHECK
+// StarRez Package Logger v2.5 - STABLE NO-FLICKER & STRICT FORMAT
 // ============================================================================
 // PURPOSE: Automates logging for UWP Front Desk operations in StarRez
 // 
@@ -13,27 +13,19 @@
 // ============================================================================
 
 const CONFIG = {
-    DEBUG: true, // Set to false in production to reduce console output
+    DEBUG: true, 
     
-    // Pattern matching for residence codes (supports all UW residences)
+    // Pattern matching for residence codes
     RESIDENCE_PATTERN: /[A-Z0-9]+[NS]?-(?:[A-Z0-9]+-)?\d+[a-z]/i,
-    
-    // Validation patterns
     STUDENT_NUMBER_PATTERN: /^\d{8}$/,
     
-    // Timing configuration (in milliseconds)
-    CACHE_DURATION: 10000,            // How long to trust cached data
-    INIT_DEBOUNCE: 300,              // Reduced to 300ms for snappier loading
-    OBSERVER_DEBOUNCE: 500,          // Reduced to 500ms
-    BUTTON_ENABLE_DELAY: 500,        // Reduced to 500ms
-    PREVIEW_DURATION: 4000,          // How long to show success popup
-    MAX_VALIDATION_ATTEMPTS: 15,     // Increased retries for slow connections
-    
-    // Profile change detection
-    PROFILE_CHANGE_INDICATORS: [
-        'habitat-header-breadcrumb-item', // Primary indicator
-        '.ui-tabs-panel:not(.ui-tabs-hide)' // Secondary indicator
-    ]
+    // Timing configuration
+    CACHE_DURATION: 10000,            
+    INIT_DEBOUNCE: 300,              
+    OBSERVER_DEBOUNCE: 500,          
+    BUTTON_ENABLE_DELAY: 500,        
+    PREVIEW_DURATION: 4000,          
+    MAX_VALIDATION_ATTEMPTS: 15
 };
 
 // ============================================================================
@@ -41,19 +33,10 @@ const CONFIG = {
 // ============================================================================
 
 const state = {
-    lastExtracted: {
-        name: null,
-        studentNumber: null,
-        roomSpace: null,
-        timestamp: null
-    },
+    lastExtracted: { name: null, studentNumber: null, roomSpace: null, timestamp: null },
     lastBreadcrumb: null,
-    lastProfileHash: null,
     validationAttempts: 0,
-    timers: {
-        init: null,
-        observer: null
-    }
+    timers: { init: null, observer: null }
 };
 
 // ============================================================================
@@ -69,16 +52,6 @@ const clearTimer = (timerName) => {
         state.timers[timerName] = null;
     }
 };
-
-function simpleHash(content) {
-    let hash = 0;
-    for (let i = 0; i < content.length; i++) {
-        const char = content.charCodeAt(i);
-        hash = ((hash << 5) - hash) + char;
-        hash = hash & hash;
-    }
-    return hash;
-}
 
 // ============================================================================
 // DATA EXTRACTION
@@ -118,16 +91,6 @@ function getCurrentBreadcrumb() {
         }
     }
     return null;
-}
-
-function hasProfileChanged() {
-    const container = document.querySelector('.ui-tabs-panel:not(.ui-tabs-hide)') || document.body;
-    const currentHash = simpleHash(container.innerText.substring(0, 500));
-    if (state.lastProfileHash !== null && state.lastProfileHash !== currentHash) {
-        return true;
-    }
-    state.lastProfileHash = currentHash;
-    return false;
 }
 
 // ============================================================================
@@ -184,11 +147,7 @@ function extractBedspace(containerText) {
 }
 
 function validateStudentData(data) {
-    const isValid = data.fullName && 
-                   CONFIG.STUDENT_NUMBER_PATTERN.test(data.studentNumber) && 
-                   CONFIG.RESIDENCE_PATTERN.test(data.roomSpace);
-    
-    if (isValid) {
+    if (data.fullName && CONFIG.STUDENT_NUMBER_PATTERN.test(data.studentNumber) && CONFIG.RESIDENCE_PATTERN.test(data.roomSpace)) {
         state.lastExtracted = { ...data, timestamp: Date.now() };
         return data;
     }
@@ -232,12 +191,12 @@ function generateLogEntry(packageCount = 1) {
 /**
  * STRICT KEY EXTRACTION
  * Uses Student ID to ensure we only grab keys for the current student
+ * Filters out lowercase results (usernames/emails)
  */
 function extractKeyCodes(studentName, studentID) {
     const detailContainer = document.querySelector('.ui-tabs-panel:not(.ui-tabs-hide)') || document.body;
     const text = detailContainer.innerText;
     
-    // Check if we are in a "busy" view (Report detected)
     const allMatches = Array.from(text.matchAll(/(?:Bedroom|Floor|Mail|Unit|Key|LOANER)[^:\r\n]*:\s*([A-Z0-9]+)/gi));
     const isReportMode = /Entry Name.*Student Number/i.test(text) || /Loaner Keys Report/i.test(text) || allMatches.length > 4;
 
@@ -268,7 +227,11 @@ function extractUniqueCodes(matches) {
     const uniqueCodes = new Set();
     matches.forEach(m => {
         const code = m[1].trim();
-        if (code.length > 2) uniqueCodes.add(code);
+        // IGNORE LOWERCASE: Keys are Uppercase (20AA). Usernames (e2levitt) are lower.
+        // Also ensure it's not just a short number.
+        if (code.length > 2 && !/[a-z]/.test(code)) {
+            uniqueCodes.add(code);
+        }
     });
     return Array.from(uniqueCodes);
 }
@@ -285,8 +248,8 @@ function generateLockoutEntry() {
         const staffInitials = staffName ? getInitials(staffName) : 'X.X';
         const initials = getInitials(studentData.fullName);
         
-        // NEW FORMAT: [Fill in Reason] - Initials
-        const logEntry = `${initials} (${studentData.studentNumber}) ${studentData.roomSpace} KC: ${keyCodes.join(', ')} [Fill in Reason] - ${staffInitials}`;
+        // UPDATED FORMAT: Semicolon before Reason
+        const logEntry = `${initials} (${studentData.studentNumber}) ${studentData.roomSpace} KC: ${keyCodes.join(', ')}; [Fill in Reason] - ${staffInitials}`;
         
         return { success: true, logEntry, data: { ...studentData, keyCodes, staffInitials, staffName } };
     } catch (err) { return { success: false, error: err.message }; }
@@ -381,12 +344,11 @@ function createLockoutButton() {
     
     // STRICT CHECK: Are we on a profile? (Must have EntryID or Rez 360)
     const isProfile = /EntryID:|Rez 360/i.test(detailContainer.innerText);
-    if (!isProfile) return; // Silent exit if not on a profile
+    if (!isProfile) return; 
 
     const hasKeyCodes = /Key Code|KEYS|LOANER/i.test(detailContainer.innerText);
     if (!hasKeyCodes || document.getElementById('lockout-log-btn')) return;
 
-    // Find best location (Label text)
     const candidates = Array.from(document.querySelectorAll('*')).filter(el => {
         if (el.offsetParent === null || ['SCRIPT','STYLE'].includes(el.tagName)) return false;
         return (/Key Code|KEYS|LOANER/i.test(el.textContent)) && el.textContent.length < 100;
@@ -455,9 +417,11 @@ function initialize() {
     clearTimer('init');
     state.timers.init = setTimeout(() => {
         const currentBreadcrumb = getCurrentBreadcrumb();
-        const profileChanged = hasProfileChanged();
         
-        if (currentBreadcrumb !== state.lastBreadcrumb || profileChanged) {
+        // LOOP FIX: Only clear buttons if the student name (breadcrumb) actually changes.
+        // Do NOT clear buttons just because the DOM content shifted (which happens when we add buttons).
+        if (currentBreadcrumb && currentBreadcrumb !== state.lastBreadcrumb) {
+            log('New profile detected - Cleaning up old buttons');
             clearOldButtons();
             state.lastBreadcrumb = currentBreadcrumb;
         }
@@ -485,4 +449,4 @@ else initialize();
 const observer = new MutationObserver(() => { clearTimer('observer'); state.timers.observer = setTimeout(initialize, CONFIG.OBSERVER_DEBOUNCE); });
 observer.observe(document.body, { childList: true, subtree: true });
 
-log('StarRez Package Logger v2.4 Loaded');
+log('StarRez Package Logger v2.5 Loaded');
