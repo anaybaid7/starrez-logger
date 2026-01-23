@@ -1,5 +1,5 @@
 // ============================================================================
-// StarRez Package Logger v2.2 - FIXED LOCKOUT PLACEMENT
+// StarRez Package Logger v2.3 - FIXED KEY CODE EXTRACTION
 // ============================================================================
 // PURPOSE: Automates logging for UWP Front Desk operations in StarRez
 // 
@@ -463,27 +463,35 @@ function generateLogEntry(packageCount = 1) {
 
 /**
  * Extracts key codes from the StarRez page
- * @returns {Array|null} Array of key codes or null if not found
+ * @returns {Array|null} Array of unique key codes or null if not found
  */
 function extractKeyCodes() {
     const detailContainer = document.querySelector('.ui-tabs-panel:not(.ui-tabs-hide)') || document.body;
-    const containerText = detailContainer.innerText;
+    const text = detailContainer.innerText;
     
-    // Look for "Key Code" section OR "LOANER" and extract alphanumeric codes
-    const keyCodePattern = /(?:Key Code|LOANER.*?)[:\s]+([A-Z0-9]+(?:[,\s]+[A-Z0-9]+)*)/i;
-    const match = containerText.match(keyCodePattern);
+    // STRICT REGEX: Only find "Label : Code" format
+    // This looks for words like "Bedroom", "Floor", "Key", "LOANER" followed by a COLON, then the code.
+    // This purposefully ignores the "Loaner Keys Report" header because it has no colon.
+    const regex = /(?:Bedroom|Floor|Mail|Unit|Key|LOANER)[^:\r\n]*:\s*([A-Z0-9]+)/gi;
     
-    if (!match) {
+    const matches = Array.from(text.matchAll(regex));
+    
+    if (matches.length === 0) {
         log('No key codes found');
         return null;
     }
     
-    // Split multiple key codes (comma or space separated)
-    const codes = match[1]
-        .split(/[,\s]+/)
-        .map(c => c.trim())
-        .filter(c => c.length > 0);
+    // Extract the code (group 1) and remove duplicates
+    const uniqueCodes = new Set();
+    matches.forEach(m => {
+        const code = m[1].trim();
+        // Ignore short noise (like single digits if they happen)
+        if (code.length > 2) {
+            uniqueCodes.add(code);
+        }
+    });
     
+    const codes = Array.from(uniqueCodes);
     log('Found key codes:', codes);
     return codes;
 }
@@ -1226,7 +1234,7 @@ observer.observe(document.body, {
     subtree: true 
 });
 
-log('StarRez Package Logger v2.2 loaded');
+log('StarRez Package Logger v2.3 loaded');
 
 // ============================================================================
 // END OF SCRIPT
