@@ -217,31 +217,31 @@ function getStudentDataFromRez360() {
     const entryIdIndex = containerText.indexOf('EntryID:');
     if (entryIdIndex !== -1) {
         containerText = containerText.substring(entryIdIndex);
-        log('✓ Isolated Rez 360 section');
+        log('Isolated Rez 360 section');
     }
     
     // Extract student name from breadcrumb (most reliable source)
     data.fullName = getCurrentBreadcrumb();
     if (!data.fullName) {
-        error('✗ Student name not found');
+        error('Student name not found');
     } else {
-        log('✓ Name:', data.fullName);
+        log('Name:', data.fullName);
     }
     
     // Extract 8-digit student number
     const studentNumMatch = containerText.match(/Student Number\s+(\d{8})/);
     if (studentNumMatch) {
         data.studentNumber = studentNumMatch[1];
-        log('✓ Student number:', data.studentNumber);
+        log('Student number:', data.studentNumber);
     } else {
-        error('✗ Student number not found');
+        error('Student number not found');
     }
     
     // Extract bedspace using multiple fallback methods
     data.roomSpace = extractBedspace(containerText, detailContainer);
     
     if (!data.roomSpace) {
-        error('✗ Bedspace not found');
+        error('Bedspace not found');
     }
     
     // Validate all extracted data
@@ -261,7 +261,7 @@ function extractBedspace(containerText, detailContainer) {
         () => {
             const match = containerText.match(/Room\s+([A-Z0-9]+[NS]?-(?:[A-Z0-9]+-)?\d+[a-z])\/([A-Z0-9]+[NS]?-(?:[A-Z0-9]+-)?\d+[a-z])/i);
             if (match) {
-                log('✓ METHOD 1: Bedspace after slash:', match[2]);
+                log('METHOD 1: Bedspace after slash:', match[2]);
                 return match[2];
             }
         },
@@ -272,7 +272,7 @@ function extractBedspace(containerText, detailContainer) {
             if (rez360Section) {
                 const match = rez360Section[0].match(CONFIG.RESIDENCE_PATTERN);
                 if (match) {
-                    log('✓ METHOD 2: Bedspace in Rez 360:', match[0]);
+                    log('METHOD 2: Bedspace in Rez 360:', match[0]);
                     return match[0];
                 }
             }
@@ -282,7 +282,7 @@ function extractBedspace(containerText, detailContainer) {
         () => {
             const match = containerText.match(/Room Space[\s\S]*?([A-Z0-9]+[NS]?-(?:[A-Z0-9]+-)?\d+[a-z])/i);
             if (match) {
-                log('✓ METHOD 3: Room Space field:', match[1]);
+                log('METHOD 3: Room Space field:', match[1]);
                 return match[1];
             }
         },
@@ -292,7 +292,7 @@ function extractBedspace(containerText, detailContainer) {
             const matches = containerText.match(new RegExp(CONFIG.RESIDENCE_PATTERN.source, 'gi'));
             if (matches?.length > 0) {
                 const lastMatch = matches[matches.length - 1];
-                log('✓ METHOD 4: Pattern search:', lastMatch);
+                log('METHOD 4: Pattern search:', lastMatch);
                 return lastMatch;
             }
         }
@@ -323,11 +323,11 @@ function validateStudentData(data) {
     const isValid = Object.values(checks).every(Boolean);
     
     if (!isValid) {
-        error('❌ VALIDATION FAILED:', checks);
+        error('VALIDATION FAILED:', checks);
         return null;
     }
     
-    log('✅ Validation passed');
+    log('Validation passed');
     
     // Cache validated data for future comparisons
     state.lastExtracted = {
@@ -435,7 +435,7 @@ function generateLogEntry(packageCount = 1) {
         // Format: J.D (20321232) CLVN-349b 1 pkg @ 1:39 pm - A.B
         const logEntry = `${initials} (${studentData.studentNumber}) ${studentData.roomSpace} ${packageCount} pkg${packageCount > 1 ? 's' : ''} @ ${time} - ${staffInitials}`;
         
-        log('✓ Generated:', logEntry);
+        log('Generated:', logEntry);
         
         return {
             success: true,
@@ -484,7 +484,7 @@ function extractKeyCodes() {
         .map(c => c.trim())
         .filter(c => c.length > 0);
     
-    log('✓ Found key codes:', codes);
+    log('Found key codes:', codes);
     return codes;
 }
 
@@ -537,7 +537,7 @@ function generateLockoutEntry() {
                     error: 'Stale data detected. Wait 2-3 seconds and retry.'
                 };
             }
-            log('✓ Cache validated');
+            log('Cache validated');
         }
         
         const keyCodes = extractKeyCodes();
@@ -555,7 +555,7 @@ function generateLockoutEntry() {
         const keyCodesStr = keyCodes.join(', ');
         const lockoutEntry = `${initials} (${studentData.studentNumber}) ${studentData.roomSpace} KC: ${keyCodesStr}`;
         
-        log('✓ Generated lockout entry:', lockoutEntry);
+        log('Generated lockout entry:', lockoutEntry);
         
         return {
             success: true,
@@ -649,7 +649,7 @@ function generatePackageLabel() {
         // Multi-line format for printing
         const labelText = `${dateTime}\n${studentData.studentNumber}\n${displayName}\n${studentData.roomSpace}\nFDA Name: ${staffInitials}`;
         
-        log('✓ Generated package label:', labelText);
+        log('Generated package label:', labelText);
         
         return {
             success: true,
@@ -777,7 +777,7 @@ function showPreview(text, data) {
     const formattedText = text.replace(/\n/g, '<br>');
     
     preview.innerHTML = `
-        <div style="font-weight: bold; margin-bottom: 8px; color: #667eea;">✓ Copied to Clipboard</div>
+        <div style="font-weight: bold; margin-bottom: 8px; color: #667eea;">Copied to Clipboard</div>
         ${staffInfo}
         <div style="background: #f7f7f7; padding: 8px; border-radius: 4px; word-break: break-all; font-weight: 600;">${formattedText}</div>
         ${debugInfo}
@@ -820,7 +820,7 @@ async function handleButtonClick(button, packageCount, originalText, successGrad
         const copied = await copyToClipboard(result.logEntry);
         
         if (copied) {
-            button.textContent = '✓ Copied!';
+            button.textContent = 'Copied!';
             button.style.background = successGradient;
             showPreview(result.logEntry, result.data);
             
@@ -984,11 +984,11 @@ function createLockoutButton() {
     });
     
     keyCodeElements[0].parentNode.insertBefore(button, keyCodeElements[0].nextSibling);
-    log('✓ Lockout button created');
+    log('Lockout button created');
 }
 
 /**
- * Creates package label button at top of profile
+ * Creates package label button at top right near Entry Actions button
  * Always visible on student profiles for printing labels
  */
 function createPackageLabelButton() {
@@ -996,17 +996,21 @@ function createPackageLabelButton() {
         return; // Already exists
     }
     
-    // Find profile header area
-    const rez360Headers = Array.from(document.querySelectorAll('*')).filter(el => {
-        const text = el.textContent;
-        return /Rez 360|Profile|Student/i.test(text) && text.length < 50 && el.tagName.match(/^H[1-6]$/i);
-    });
+    // Find the "Entry Actions" or "New" button area (top right)
+    const entryActionsBtn = Array.from(document.querySelectorAll('button, a')).find(el => 
+        /Entry Actions|New/i.test(el.textContent) && el.textContent.length < 20
+    );
     
-    let targetLocation = rez360Headers[0];
+    let targetLocation = entryActionsBtn?.parentElement;
+    
+    // Fallback: Look for the header container
     if (!targetLocation) {
-        const breadcrumbArea = document.querySelector('habitat-header-breadcrumb-item');
-        if (breadcrumbArea) {
-            targetLocation = breadcrumbArea.parentElement;
+        const headerContainers = document.querySelectorAll('[class*="header"], [class*="toolbar"], [class*="actions"]');
+        for (const container of headerContainers) {
+            if (container.querySelector('button')) {
+                targetLocation = container;
+                break;
+            }
         }
     }
     
@@ -1017,16 +1021,13 @@ function createPackageLabelButton() {
     
     const gradient = 'linear-gradient(135deg, #4facfe 0%, #00f2fe 100%)';
     const successGradient = 'linear-gradient(135deg, #11998e 0%, #38ef7d 100%)';
-    const buttonText = '🏷️ Print Label';
+    const buttonText = 'Print Label';
     
     const button = createStyledButton('Loading...', gradient);
     button.id = 'package-label-btn';
     button.disabled = true;
     button.style.opacity = '0.6';
     button.style.cursor = 'not-allowed';
-    button.style.position = 'relative';
-    button.style.float = 'right';
-    button.style.marginRight = '20px';
     button.dataset.originalGradient = gradient;
     
     enableButtonAfterDelay(button, buttonText);
@@ -1037,8 +1038,14 @@ function createPackageLabelButton() {
         handleButtonClick(button, 1, buttonText, successGradient, 'label');
     });
     
-    targetLocation.parentNode.insertBefore(button, targetLocation);
-    log('✓ Package label button created');
+    // Insert before Entry Actions button (or append to container)
+    if (entryActionsBtn) {
+        entryActionsBtn.parentNode.insertBefore(button, entryActionsBtn);
+    } else {
+        targetLocation.appendChild(button);
+    }
+    
+    log('Package label button created');
 }
 
 /**
@@ -1079,7 +1086,7 @@ function clearOldButtons() {
         timestamp: null
     };
     
-    log('✓ Cleared old buttons and cache');
+    log('Cleared old buttons and cache');
 }
 
 // ============================================================================
@@ -1101,7 +1108,7 @@ function initialize() {
         const breadcrumbChanged = currentBreadcrumb !== state.lastBreadcrumb;
         
         if (breadcrumbChanged || profileChanged) {
-            log('🔄 PROFILE CHANGE DETECTED - CLEARING BUFFER');
+            log('PROFILE CHANGE DETECTED - CLEARING BUFFER');
             log('  Breadcrumb changed:', breadcrumbChanged, `(${state.lastBreadcrumb} → ${currentBreadcrumb})`);
             log('  Content changed:', profileChanged);
             
@@ -1132,7 +1139,7 @@ function initialize() {
             }
             log('⚠️ Gave up waiting for EntryID');
         } else {
-            log('✓ EntryID found');
+            log('EntryID found');
             state.validationAttempts = 0;
         }
         
@@ -1177,7 +1184,7 @@ observer.observe(document.body, {
     subtree: true 
 });
 
-log('✓ StarRez Package Logger v2.1 loaded!');
+log('StarRez Package Logger v2.1 loaded');
 
 // ============================================================================
 // END OF SCRIPT
