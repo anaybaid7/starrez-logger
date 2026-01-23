@@ -1,5 +1,5 @@
 // ============================================================================
-// StarRez Package Logger v2.1 - PRODUCTION READY FOR IST REVIEW
+// StarRez Package Logger v2.2 - FIXED LOCKOUT PLACEMENT
 // ============================================================================
 // PURPOSE: Automates logging for UWP Front Desk operations in StarRez
 // 
@@ -942,8 +942,9 @@ function createIndividualButtons() {
  */
 function createLockoutButton() {
     const detailContainer = document.querySelector('.ui-tabs-panel:not(.ui-tabs-hide)') || document.body;
-    // UPDATED CHECK: Look for "KEYS" header OR "Key Code" text
-    const hasKeyCodes = /Key Code|KEYS/i.test(detailContainer.innerText);
+    
+    // UPDATED CHECK: Look for "KEYS", "LOANER", or "Key Code"
+    const hasKeyCodes = /Key Code|KEYS|LOANER/i.test(detailContainer.innerText);
     
     if (!hasKeyCodes) {
         log('No key codes detected, skipping lockout button');
@@ -954,17 +955,30 @@ function createLockoutButton() {
         return; // Already exists
     }
     
-    // Find location near "Key Code" text or "KEYS"
-    const keyCodeElements = Array.from(document.querySelectorAll('*')).filter(el => {
+    // Find all elements containing the target text
+    const candidates = Array.from(document.querySelectorAll('*')).filter(el => {
+        // Ignore invisible elements
+        if (el.offsetParent === null) return false;
+        if (el.tagName === 'SCRIPT' || el.tagName === 'STYLE') return false;
+
         const text = el.textContent;
-        return (/Key Code|KEYS/i.test(text)) && text.length < 100;
+        // Check for specific keywords
+        return (/Key Code|KEYS|LOANER/i.test(text)) && text.length < 100;
     });
     
-    if (keyCodeElements.length === 0) {
+    if (candidates.length === 0) {
         log('Could not find suitable location for lockout button');
         return;
     }
+
+    // SORT BY LENGTH: Use the element with the least amount of text.
+    // This ensures we grab the specific label "KEYS" (length 4) 
+    // instead of the parent container "KEYS ... LOANER ... Notes" (length 50+)
+    candidates.sort((a, b) => a.textContent.length - b.textContent.length);
+    const bestTarget = candidates[0];
     
+    log('Attaching button to:', bestTarget.tagName, bestTarget.textContent);
+
     const gradient = 'linear-gradient(135deg, #fa709a 0%, #fee140 100%)';
     const successGradient = 'linear-gradient(135deg, #11998e 0%, #38ef7d 100%)';
     const buttonText = 'Copy Lockout';
@@ -984,7 +998,10 @@ function createLockoutButton() {
         handleButtonClick(button, 1, buttonText, successGradient, 'lockout');
     });
     
-    keyCodeElements[0].parentNode.insertBefore(button, keyCodeElements[0].nextSibling);
+    // Append INSIDE the element (next to the text) instead of after it
+    // This prevents it from being pushed to a new line or outside the box
+    bestTarget.appendChild(button);
+    
     log('Lockout button created');
 }
 
@@ -1209,7 +1226,7 @@ observer.observe(document.body, {
     subtree: true 
 });
 
-log('StarRez Package Logger v2.1 loaded');
+log('StarRez Package Logger v2.2 loaded');
 
 // ============================================================================
 // END OF SCRIPT
