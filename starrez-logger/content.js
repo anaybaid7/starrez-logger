@@ -22,7 +22,7 @@ const CONFIG = {
     STUDENT_NUMBER_PATTERN: /^\d{8}$/,
     
     // Timing configuration (in milliseconds)
-    CACHE_DURATION: 10000,           // How long to trust cached data
+    CACHE_DURATION: 10000,            // How long to trust cached data
     INIT_DEBOUNCE: 500,              // Reduced from 1000ms for faster initial load
     OBSERVER_DEBOUNCE: 800,          // Reduced from 1500ms for faster response
     BUTTON_ENABLE_DELAY: 1000,       // Reduced from 2000ms for faster availability
@@ -469,8 +469,8 @@ function extractKeyCodes() {
     const detailContainer = document.querySelector('.ui-tabs-panel:not(.ui-tabs-hide)') || document.body;
     const containerText = detailContainer.innerText;
     
-    // Look for "Key Code" section and extract alphanumeric codes
-    const keyCodePattern = /Key Code[:\s]+([A-Z0-9]+(?:[,\s]+[A-Z0-9]+)*)/i;
+    // Look for "Key Code" section OR "LOANER" and extract alphanumeric codes
+    const keyCodePattern = /(?:Key Code|LOANER.*?)[:\s]+([A-Z0-9]+(?:[,\s]+[A-Z0-9]+)*)/i;
     const match = containerText.match(keyCodePattern);
     
     if (!match) {
@@ -942,7 +942,8 @@ function createIndividualButtons() {
  */
 function createLockoutButton() {
     const detailContainer = document.querySelector('.ui-tabs-panel:not(.ui-tabs-hide)') || document.body;
-    const hasKeyCodes = /Key Code/i.test(detailContainer.innerText);
+    // UPDATED CHECK: Look for "KEYS" header OR "Key Code" text
+    const hasKeyCodes = /Key Code|KEYS/i.test(detailContainer.innerText);
     
     if (!hasKeyCodes) {
         log('No key codes detected, skipping lockout button');
@@ -953,10 +954,10 @@ function createLockoutButton() {
         return; // Already exists
     }
     
-    // Find location near "Key Code" text
+    // Find location near "Key Code" text or "KEYS"
     const keyCodeElements = Array.from(document.querySelectorAll('*')).filter(el => {
         const text = el.textContent;
-        return /Key Code/i.test(text) && text.length < 100;
+        return (/Key Code|KEYS/i.test(text)) && text.length < 100;
     });
     
     if (keyCodeElements.length === 0) {
