@@ -272,7 +272,7 @@ function generatePackageLabel() {
             displayName = `${firstName} ${lastName}`;
         }
         
-        const labelText = `${dateTime}\n${studentData.studentNumber}\n${displayName}\n${studentData.roomSpace}\nFDA Name: ${staffInitials}`;
+        const labelText = `${dateTime}\n${studentData.studentNumber}\n${displayName}\n${studentData.roomSpace}\nFDA: ${staffInitials}`;
         return { success: true, logEntry: labelText, data: { ...studentData, dateTime, staffInitials, staffName } };
     } catch (err) { return { success: false, error: err.message }; }
 }
