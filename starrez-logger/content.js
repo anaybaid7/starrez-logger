@@ -244,7 +244,7 @@ function generateLockoutEntry() {
         if (!studentData) return { success: false, error: 'Data not found' };
         
         const keyCodes = extractKeyCodes(studentData.fullName, studentData.studentNumber);
-        if (!keyCodes || keyCodes.length === 0) return { success: false, error: 'No keys found for this student' };
+        if (!keyCodes || keyCodes.length === 0) return { success: false, error: 'No Loaner Keys found for this student' };
         
         const staffName = getStaffName();
         const staffInitials = staffName ? getInitials(staffName) : 'X.X';
