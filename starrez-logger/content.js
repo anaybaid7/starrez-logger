@@ -334,7 +334,7 @@ async function handleButtonClick(button, count, originalText, gradient, type) {
             showPreview(result.logEntry, result.data);
             setTimeout(() => { button.textContent = originalText; button.style.background = gradient; }, 2000);
         }
-    } else { alert('❌ Error: ' + result.error); }
+    } else { alert('Error: ' + result.error); }
 }
 
 // ----------------------------------------------------------------------------
