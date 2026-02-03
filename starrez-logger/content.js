@@ -1,42 +1,48 @@
 // ============================================================================
-// StarRez Package Logger v2.6 - FINAL STABLE & STRICT
+// StarRez Package Logger v3.0 - Production-ready, profile-switch aware
 // ============================================================================
 // PURPOSE: Automates logging for UWP Front Desk operations in StarRez
-// 
+//
 // FEATURES:
 // 1. Package Log Buttons - Generate formatted package pickup logs
 // 2. Lockout Log Button - Generate formatted lockout key logs (Profile Only)
 // 3. Print Label Button - Generate formatted package labels for printing
 //
-// AUTHOR: Front Desk Automation Team
-// LAST UPDATED: January 2026
+// v3.0: Profile switch without refresh, consistent UI, faster & more reliable.
+// AUTHOR: Front Desk Automation Team | Maintained by Anay Baid
+// LAST UPDATED: February 2026
 // ============================================================================
 
 const CONFIG = {
-    DEBUG: true, 
-    
+    DEBUG: false,
+
     // Pattern matching
     RESIDENCE_PATTERN: /[A-Z0-9]+[NS]?-(?:[A-Z0-9]+-)?\d+[a-z]/i,
     STUDENT_NUMBER_PATTERN: /^\d{8}$/,
-    
-    // Timing configuration
-    CACHE_DURATION: 10000,            
-    INIT_DEBOUNCE: 300,              
-    OBSERVER_DEBOUNCE: 500,          
-    BUTTON_ENABLE_DELAY: 200, // Faster button enable
-    PREVIEW_DURATION: 4000,          
-    MAX_VALIDATION_ATTEMPTS: 20
+
+    // Timing: tuned for fast reaction to profile switches without thrashing
+    INIT_DEBOUNCE: 120,
+    OBSERVER_DEBOUNCE: 280,
+    BUTTON_READY_DELAY: 80,
+    PREVIEW_DURATION: 4000,
+    SUCCESS_RESET_MS: 2200,
+    MAX_VALIDATION_ATTEMPTS: 25,
+    LOCKOUT_RETRY_DELAY: 400,
+    LOCKOUT_MAX_RETRIES: 6
 };
 
 // ============================================================================
-// STATE MANAGEMENT
+// STATE MANAGEMENT (profile-switch aware)
 // ============================================================================
 
 const state = {
+    /** Current profile identifier: breadcrumb + path so we detect SPA navigation */
+    profileKey: null,
     lastExtracted: { name: null, studentNumber: null, roomSpace: null, timestamp: null },
-    lastBreadcrumb: null,
     validationAttempts: 0,
-    timers: { init: null, observer: null }
+    timers: { init: null, observer: null },
+    /** Last URL path we saw (for hash/path change detection) */
+    lastPath: null
 };
 
 // ============================================================================
@@ -93,6 +99,14 @@ function getCurrentBreadcrumb() {
     return null;
 }
 
+/** Unique key for current profile so we detect switches without full refresh */
+function getProfileKey() {
+    const breadcrumb = getCurrentBreadcrumb();
+    const path = (location.pathname || '') + (location.hash || '');
+    if (!breadcrumb) return path || null;
+    return breadcrumb + '|' + path;
+}
+
 // ============================================================================
 // STUDENT DATA LOGIC
 // ============================================================================
@@ -100,6 +114,7 @@ function getCurrentBreadcrumb() {
 function getStudentDataFromRez360() {
     const data = {};
     const detailContainer = document.querySelector('.ui-tabs-panel:not(.ui-tabs-hide)') || document.body;
+    if (!detailContainer || !detailContainer.innerText) return null;
     let containerText = detailContainer.innerText;
     
     const entryIdIndex = containerText.indexOf('EntryID:');
@@ -196,7 +211,13 @@ function generateLogEntry(packageCount = 1) {
  */
 function extractKeyCodes(studentName, studentID) {
     const detailContainer = document.querySelector('.ui-tabs-panel:not(.ui-tabs-hide)') || document.body;
-    const text = detailContainer.innerText;
+    if (!detailContainer) return null;
+    let text;
+    try {
+        text = detailContainer.innerText || '';
+    } catch (_) {
+        return null;
+    }
     
     // Regex finds "Label : CODE"
     const allMatches = Array.from(text.matchAll(/(?:Bedroom|Floor|Mail|Unit|Key|LOANER)[^:\r\n]*:\s*([A-Z0-9]+)/gi));
@@ -244,7 +265,7 @@ function generateLockoutEntry() {
         if (!studentData) return { success: false, error: 'Data not found' };
         
         const keyCodes = extractKeyCodes(studentData.fullName, studentData.studentNumber);
-        if (!keyCodes || keyCodes.length === 0) return { success: false, error: 'No Loaner Keys found for this student' };
+        if (!keyCodes || keyCodes.length === 0) return { success: false, error: 'No keys found for this student (or key section not loaded yet)' };
         
         const staffName = getStaffName();
         const staffInitials = staffName ? getInitials(staffName) : 'X.X';
@@ -278,63 +299,116 @@ function generatePackageLabel() {
 }
 
 async function copyToClipboard(text) {
-    try { await navigator.clipboard.writeText(text); return true; } 
-    catch (err) { return false; }
+    if (typeof text !== 'string') return false;
+    try {
+        await navigator.clipboard.writeText(text);
+        return true;
+    } catch (err) {
+        if (CONFIG.DEBUG) error('Clipboard write failed', err);
+        return false;
+    }
 }
 
 // ============================================================================
-// UI COMPONENTS & BUTTONS
+// UI COMPONENTS & BUTTONS (consistent design system)
 // ============================================================================
 
-function createStyledButton(text, gradient) {
+const BUTTON_STYLES = {
+    primary: 'linear-gradient(135deg, #2563eb 0%, #4f46e5 100%)',
+    success: 'linear-gradient(135deg, #059669 0%, #10b981 100%)',
+    shadow: '0 2px 8px rgba(37, 99, 235, 0.35)',
+    shadowHover: '0 4px 14px rgba(37, 99, 235, 0.45)'
+};
+
+function createStyledButton(text, variant = 'primary') {
+    const gradient = variant === 'primary' ? BUTTON_STYLES.primary : BUTTON_STYLES.primary;
     const button = document.createElement('button');
     button.textContent = text;
+    button.setAttribute('data-pkg-logger-variant', variant);
     button.style.cssText = `
-        margin-left: 10px; padding: 8px 16px; background: ${gradient}; color: white;
+        margin-left: 10px; padding: 8px 16px; background: ${gradient}; color: #fff;
         border: none; border-radius: 6px; cursor: pointer; font-weight: 600; font-size: 14px;
-        box-shadow: 0 2px 8px rgba(102, 126, 234, 0.3); transition: all 0.2s ease;
+        box-shadow: ${BUTTON_STYLES.shadow}; transition: transform 0.15s ease, box-shadow 0.15s ease, background 0.2s ease;
     `;
-    button.addEventListener('mouseenter', () => { button.style.transform = 'translateY(-2px)'; button.style.boxShadow = '0 4px 12px rgba(102, 126, 234, 0.4)'; });
-    button.addEventListener('mouseleave', () => { button.style.transform = 'translateY(0)'; button.style.boxShadow = '0 2px 8px rgba(102, 126, 234, 0.3)'; });
+    button.addEventListener('mouseenter', () => {
+        if (button.getAttribute('data-pkg-logger-variant') === 'success') return;
+        button.style.transform = 'translateY(-2px)';
+        button.style.boxShadow = BUTTON_STYLES.shadowHover;
+    });
+    button.addEventListener('mouseleave', () => {
+        button.style.transform = 'translateY(0)';
+        const v = button.getAttribute('data-pkg-logger-variant');
+        button.style.boxShadow = v === 'success' ? '0 2px 8px rgba(5, 150, 105, 0.4)' : BUTTON_STYLES.shadow;
+    });
     return button;
 }
 
-function showPreview(text, data) {
-    document.getElementById('log-preview-popup')?.remove();
-    const preview = document.createElement('div');
-    preview.id = 'log-preview-popup';
-    preview.style.cssText = `
-        position: fixed; top: 20px; right: 20px; background: white; border: 2px solid #667eea;
-        border-radius: 8px; padding: 16px; box-shadow: 0 4px 20px rgba(0,0,0,0.15); z-index: 10000;
-        max-width: 500px; font-family: monospace; font-size: 13px; animation: slideIn 0.3s ease;
-    `;
-    
-    let debugInfo = '';
-    if (data.keyCodes) debugInfo = `Student: ${data.fullName}<br/>Keys: ${data.keyCodes.join(', ')}`;
-    else debugInfo = `Student: ${data.fullName}<br/>Room: ${data.roomSpace}`;
-
-    preview.innerHTML = `
-        <div style="font-weight: bold; margin-bottom: 8px; color: #667eea;">Copied to Clipboard</div>
-        <div style="font-size: 11px; color: #999; margin-bottom: 4px;">Logged by: ${data.staffName || 'Unknown'}</div>
-        <div style="background: #f7f7f7; padding: 8px; border-radius: 4px; word-break: break-all; font-weight: 600;">${text.replace(/\n/g, '<br>')}</div>
-        <div style="font-size: 10px; color: #ccc; margin-top: 8px;">${debugInfo}</div>
-    `;
-    document.body.appendChild(preview);
-    setTimeout(() => { preview.remove(); }, CONFIG.PREVIEW_DURATION);
+function setButtonSuccess(button, originalText) {
+    button.setAttribute('data-pkg-logger-variant', 'success');
+    button.style.background = BUTTON_STYLES.success;
+    button.textContent = 'Copied!';
+    setTimeout(() => {
+        button.setAttribute('data-pkg-logger-variant', 'primary');
+        button.style.background = BUTTON_STYLES.primary;
+        button.style.boxShadow = BUTTON_STYLES.shadow;
+        button.textContent = originalText;
+    }, CONFIG.SUCCESS_RESET_MS);
 }
 
-async function handleButtonClick(button, count, originalText, gradient, type) {
-    if (button.disabled) return;
-    let result = (type === 'lockout') ? generateLockoutEntry() : (type === 'label') ? generatePackageLabel() : generateLogEntry(count);
-    
+function showPreview(text, data) {
+    try {
+        document.getElementById('log-preview-popup')?.remove();
+        const preview = document.createElement('div');
+        preview.id = 'log-preview-popup';
+        preview.style.cssText = `
+            position: fixed; top: 20px; right: 20px; background: white; border: 2px solid #2563eb;
+            border-radius: 8px; padding: 16px; box-shadow: 0 4px 20px rgba(0,0,0,0.15); z-index: 10000;
+            max-width: 500px; font-family: monospace; font-size: 13px; animation: slideIn 0.3s ease;
+        `;
+        const safe = (x) => (x != null ? String(x) : '');
+        const d = data || {};
+        let debugInfo = '';
+        if (Array.isArray(d.keyCodes) && d.keyCodes.length) {
+            debugInfo = `Student: ${safe(d.fullName)}<br/>Keys: ${d.keyCodes.join(', ')}`;
+        } else {
+            debugInfo = `Student: ${safe(d.fullName)}<br/>Room: ${safe(d.roomSpace)}`;
+        }
+        const safeText = safe(text).replace(/\n/g, '<br>');
+        preview.innerHTML = `
+            <div style="font-weight: bold; margin-bottom: 8px; color: #2563eb;">Copied to Clipboard</div>
+            <div style="font-size: 11px; color: #999; margin-bottom: 4px;">Logged by: ${safe(d.staffName) || 'Unknown'}</div>
+            <div style="background: #f7f7f7; padding: 8px; border-radius: 4px; word-break: break-all; font-weight: 600;">${safeText}</div>
+            <div style="font-size: 10px; color: #ccc; margin-top: 8px;">${debugInfo}</div>
+        `;
+        if (document.body) document.body.appendChild(preview);
+        setTimeout(() => { preview.remove(); }, CONFIG.PREVIEW_DURATION);
+    } catch (err) {
+        error('showPreview failed', err);
+    }
+}
+
+async function handleButtonClick(button, count, originalText, type) {
+    if (!button || button.disabled) return;
+    let result;
+    try {
+        result = type === 'lockout' ? generateLockoutEntry() : type === 'label' ? generatePackageLabel() : generateLogEntry(count);
+    } catch (err) {
+        error('handleButtonClick', err);
+        alert('Error: ' + (err && err.message ? err.message : 'Something went wrong'));
+        return;
+    }
+    if (!result) return;
+
     if (result.success) {
         if (await copyToClipboard(result.logEntry)) {
-            button.textContent = 'Copied!';
-            button.style.background = 'linear-gradient(135deg, #11998e 0%, #38ef7d 100%)';
+            setButtonSuccess(button, originalText);
             showPreview(result.logEntry, result.data);
-            setTimeout(() => { button.textContent = originalText; button.style.background = gradient; }, 2000);
+        } else {
+            alert('Could not copy to clipboard. Try selecting the text manually or check browser permissions.');
         }
-    } else { alert('Error: ' + result.error); }
+    } else {
+        alert('Error: ' + (result.error || 'Unknown error'));
+    }
 }
 
 // ----------------------------------------------------------------------------
@@ -343,9 +417,13 @@ async function handleButtonClick(button, count, originalText, gradient, type) {
 
 function createLockoutButton(retryCount = 0) {
     const detailContainer = document.querySelector('.ui-tabs-panel:not(.ui-tabs-hide)') || document.body;
-    
-    // 1. Strict Profile Check: Are we on a student profile?
-    const isProfile = /EntryID:|Rez 360/i.test(detailContainer.innerText);
+    let containerText = '';
+    try {
+        containerText = (detailContainer && detailContainer.innerText) || '';
+    } catch (_) {
+        return;
+    }
+    const isProfile = /EntryID:|Rez 360/i.test(containerText);
     if (!isProfile) return; 
 
     // 2. Prevent Duplicate Buttons
@@ -359,62 +437,76 @@ function createLockoutButton(retryCount = 0) {
     });
 
     if (candidates.length === 0) {
-        // RETRY: Keys section might not be loaded yet
-        if (retryCount < 5) {
-            log(`Keys section not found, retrying... (${retryCount + 1}/5)`);
-            setTimeout(() => createLockoutButton(retryCount + 1), 500);
+        if (retryCount < CONFIG.LOCKOUT_MAX_RETRIES) {
+            log('Keys section not found, retrying...', retryCount + 1, '/', CONFIG.LOCKOUT_MAX_RETRIES);
+            setTimeout(() => createLockoutButton(retryCount + 1), CONFIG.LOCKOUT_RETRY_DELAY);
         }
         return;
     }
-    
-    // Sort by length to find the specific label, not the container
+
     candidates.sort((a, b) => a.textContent.length - b.textContent.length);
     const bestTarget = candidates[0];
 
-    const gradient = 'linear-gradient(135deg, #fa709a 0%, #fee140 100%)';
-    const button = createStyledButton('Loading...', gradient);
+    const button = createStyledButton('Copy Lockout', 'primary');
     button.id = 'lockout-log-btn';
-    button.disabled = true; button.style.opacity = '0.6'; button.style.cursor = 'not-allowed';
-    
-    setTimeout(() => { button.disabled = false; button.style.opacity = '1'; button.style.cursor = 'pointer'; button.textContent = 'Copy Lockout'; }, CONFIG.BUTTON_ENABLE_DELAY);
-    
-    button.addEventListener('click', (e) => { e.preventDefault(); e.stopPropagation(); handleButtonClick(button, 1, 'Copy Lockout', gradient, 'lockout'); });
-    bestTarget.appendChild(button);
+    button.disabled = true;
+    button.style.opacity = '0.7';
+    button.style.cursor = 'not-allowed';
+
+    setTimeout(() => {
+        button.disabled = false;
+        button.style.opacity = '1';
+        button.style.cursor = 'pointer';
+    }, CONFIG.BUTTON_READY_DELAY);
+
+    button.addEventListener('click', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        handleButtonClick(button, 1, 'Copy Lockout', 'lockout');
+    });
+    try {
+        bestTarget.appendChild(button);
+    } catch (err) {
+        error('Could not attach Lockout button', err);
+        return;
+    }
     log('Lockout button created at:', bestTarget.tagName);
 }
 
 function createLogButtons() {
-    // Individual Package Buttons
-    const issueButtons = Array.from(document.querySelectorAll('button, input[type="button"], a.button')).filter(b => b.textContent.toLowerCase().includes('issue') && !b.textContent.toLowerCase().includes('reissue'));
-    issueButtons.forEach((btn, i) => {
-        if (document.getElementById(`pkg-btn-${i}`)) return;
-        const b = createStyledButton('Copy Log', 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)');
-        b.id = `pkg-btn-${i}`;
-        b.addEventListener('click', (e) => { e.preventDefault(); handleButtonClick(b, 1, 'Copy Log', 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)', 'package'); });
-        btn.parentNode.insertBefore(b, btn.nextSibling);
-    });
+    try {
+        const issueButtons = Array.from(document.querySelectorAll('button, input[type="button"], a.button')).filter(b => b && b.textContent && b.textContent.toLowerCase().includes('issue') && !b.textContent.toLowerCase().includes('reissue'));
+        issueButtons.forEach((btn, i) => {
+            if (document.getElementById(`pkg-btn-${i}`)) return;
+            const b = createStyledButton('Copy Log', 'primary');
+            b.id = `pkg-btn-${i}`;
+            b.addEventListener('click', (e) => { e.preventDefault(); handleButtonClick(b, 1, 'Copy Log', 'package'); });
+            if (btn.parentNode) btn.parentNode.insertBefore(b, btn.nextSibling);
+        });
 
-    // Master Package Button
-    const parcelCount = Array.from(document.querySelectorAll('span')).find(s => /^\d+\s+Parcel[s]?$/i.test(s.textContent.trim()));
-    if (parcelCount && !document.getElementById('pkg-master')) {
-        const count = parseInt(parcelCount.textContent);
-        if (count > 1) {
-            const b = createStyledButton(`Copy ${count} pkgs`, 'linear-gradient(135deg, #f093fb 0%, #f5576c 100%)');
-            b.id = 'pkg-master';
-            b.addEventListener('click', (e) => { e.preventDefault(); handleButtonClick(b, count, `Copy ${count} pkgs`, 'linear-gradient(135deg, #f093fb 0%, #f5576c 100%)', 'package'); });
-            parcelCount.parentNode.insertBefore(b, parcelCount.nextSibling);
+        const parcelCount = Array.from(document.querySelectorAll('span')).find(s => s && s.textContent && /^\d+\s+Parcel[s]?$/i.test(s.textContent.trim()));
+        if (parcelCount && !document.getElementById('pkg-master') && parcelCount.parentNode) {
+            const count = parseInt(parcelCount.textContent, 10);
+            if (!isNaN(count) && count > 1) {
+                const label = `Copy ${count} pkgs`;
+                const b = createStyledButton(label, 'primary');
+                b.id = 'pkg-master';
+                b.addEventListener('click', (e) => { e.preventDefault(); handleButtonClick(b, count, label, 'package'); });
+                parcelCount.parentNode.insertBefore(b, parcelCount.nextSibling);
+            }
         }
-    }
 
-    createLockoutButton();
-    
-    // Print Label Button
-    const entryActions = Array.from(document.querySelectorAll('button')).find(el => /Entry Actions/i.test(el.textContent));
-    if (entryActions && !document.getElementById('pkg-label')) {
-        const b = createStyledButton('Print Label', 'linear-gradient(135deg, #4facfe 0%, #00f2fe 100%)');
-        b.id = 'pkg-label';
-        b.addEventListener('click', (e) => { e.preventDefault(); handleButtonClick(b, 1, 'Print Label', 'linear-gradient(135deg, #4facfe 0%, #00f2fe 100%)', 'label'); });
-        entryActions.parentNode.insertBefore(b, entryActions);
+        createLockoutButton();
+
+        const entryActions = Array.from(document.querySelectorAll('button')).find(el => el && el.textContent && /Entry Actions/i.test(el.textContent));
+        if (entryActions && !document.getElementById('pkg-label') && entryActions.parentNode) {
+            const b = createStyledButton('Print Label', 'primary');
+            b.id = 'pkg-label';
+            b.addEventListener('click', (e) => { e.preventDefault(); handleButtonClick(b, 1, 'Print Label', 'label'); });
+            entryActions.parentNode.insertBefore(b, entryActions);
+        }
+    } catch (err) {
+        error('createLogButtons failed', err);
     }
 }
 
@@ -423,43 +515,81 @@ function createLogButtons() {
 // ============================================================================
 
 function clearOldButtons() {
-    document.querySelectorAll('[id^="pkg-btn-"], #pkg-master, #lockout-log-btn, #pkg-label').forEach(b => b.remove());
-    state.lastExtracted = { name: null };
+    try {
+        document.querySelectorAll('[id^="pkg-btn-"], #pkg-master, #lockout-log-btn, #pkg-label').forEach(b => { try { b.remove(); } catch (_) {} });
+        document.getElementById('log-preview-popup')?.remove();
+    } catch (_) {}
+    state.lastExtracted = { name: null, studentNumber: null, roomSpace: null, timestamp: null };
 }
 
 function initialize() {
     clearTimer('init');
     state.timers.init = setTimeout(() => {
-        const currentBreadcrumb = getCurrentBreadcrumb();
-        
-        // LOOP FIX: Only clear buttons if the STUDENT actually changes.
-        if (currentBreadcrumb && currentBreadcrumb !== state.lastBreadcrumb) {
-            log('New profile detected - Refreshing buttons');
-            clearOldButtons();
-            state.lastBreadcrumb = currentBreadcrumb;
-        }
+        try {
+            const newProfileKey = getProfileKey();
+            const profileChanged = newProfileKey !== null && newProfileKey !== state.profileKey;
 
-        const container = document.querySelector('.ui-tabs-panel:not(.ui-tabs-hide)') || document.body;
-        if (!container.innerText.includes('EntryID:') && state.validationAttempts < CONFIG.MAX_VALIDATION_ATTEMPTS) {
-            state.validationAttempts++;
-            setTimeout(initialize, 500); 
-            return;
+            if (profileChanged) {
+                log('Profile or navigation changed - clearing and re-injecting');
+                clearOldButtons();
+                state.profileKey = newProfileKey;
+                state.validationAttempts = 0;
+            }
+
+            const container = document.querySelector('.ui-tabs-panel:not(.ui-tabs-hide)') || document.body;
+            let containerText = '';
+            try {
+                containerText = (container && container.innerText) || '';
+            } catch (_) {
+                containerText = '';
+            }
+            const isProfilePage = containerText.includes('EntryID:') || containerText.includes('Rez 360');
+
+            if (!isProfilePage) {
+                if (state.validationAttempts < CONFIG.MAX_VALIDATION_ATTEMPTS) {
+                    state.validationAttempts++;
+                    setTimeout(initialize, 350);
+                }
+                return;
+            }
+
+            state.validationAttempts = 0;
+            state.profileKey = state.profileKey || newProfileKey;
+            createLogButtons();
+        } catch (err) {
+            error('initialize failed', err);
         }
-        
-        state.validationAttempts = 0;
-        createLogButtons();
     }, CONFIG.INIT_DEBOUNCE);
 }
 
-// Startup
-const style = document.createElement('style');
-style.textContent = `@keyframes slideIn { from { transform: translateX(400px); opacity: 0; } to { transform: translateX(0); opacity: 1; } }`;
-document.head.appendChild(style);
+// Startup: inject styles and mark extension as loaded for verification
+(function bootstrap() {
+    try {
+        const style = document.createElement('style');
+        style.textContent = `@keyframes slideIn { from { transform: translateX(400px); opacity: 0; } to { transform: translateX(0); opacity: 1; } }`;
+        if (document.head) document.head.appendChild(style);
+        document.documentElement.setAttribute('data-pkg-logger', 'loaded');
+    } catch (_) {}
 
-if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', initialize);
-else initialize();
+    function scheduleInit() {
+        clearTimer('observer');
+        state.timers.observer = setTimeout(initialize, CONFIG.OBSERVER_DEBOUNCE);
+    }
 
-const observer = new MutationObserver(() => { clearTimer('observer'); state.timers.observer = setTimeout(initialize, CONFIG.OBSERVER_DEBOUNCE); });
-observer.observe(document.body, { childList: true, subtree: true });
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', initialize);
+    } else {
+        initialize();
+    }
 
-log('StarRez Package Logger v2.6 Loaded');
+    try {
+        const observer = new MutationObserver(scheduleInit);
+        observer.observe(document.body, { childList: true, subtree: true });
+    } catch (err) {
+        error('MutationObserver failed', err);
+    }
+    window.addEventListener('hashchange', scheduleInit);
+    window.addEventListener('popstate', scheduleInit);
+
+    log('StarRez Package Logger v3.0 Loaded');
+})();
